@@ -47,6 +47,20 @@
           "cameraPermission": "읽기 인증용으로 카메라를 사용해요."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "ca1e225d-b890-4bbe-950b-4b6daf644a28"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/ca1e225d-b890-4bbe-950b-4b6daf644a28"
+    }
   }
 }

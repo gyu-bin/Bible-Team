@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, KeyboardAvoidingView, Platform, Switch } from 'react-native';
-import { getCurrentUser, signOut } from '@/lib/supabase';
+import { ensureAnonymousUser, getCurrentUser, signOut } from '@/lib/supabase';
 import { getNickname, setNickname } from '@/lib/cache';
 import { lightTheme } from '@/constants/theme';
 import { useFontScale } from '@/contexts/FontSizeContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import type { FontSizeKey } from '@/lib/cache';
+import { upsertMyNickname } from '@/services/profileService';
 
 const NICKNAME_MAX_LENGTH = 10;
 
@@ -31,7 +32,17 @@ export default function SettingsScreen() {
     getCurrentUser()
       .then((u) => setEmail(u?.email ?? null))
       .catch(() => setEmail(null));
-    getNickname().then(setNicknameState).finally(() => setLoading(false));
+    getNickname()
+      .then((n) => {
+        setNicknameState(n ?? '');
+        return n?.trim();
+      })
+      .then(async (nick) => {
+        if (!nick) return;
+        const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
+        if (user?.id) await upsertMyNickname(user.id, nick).catch(() => {});
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   const startEditNickname = () => {
@@ -46,8 +57,17 @@ export default function SettingsScreen() {
       return;
     }
     setSavingNickname(true);
-    await setNickname(value);
-    setNicknameState(value);
+    try {
+      await setNickname(value);
+      setNicknameState(value);
+      const user = await ensureAnonymousUser().catch(() => null) ?? await getCurrentUser().catch(() => null);
+      if (user?.id) {
+        await upsertMyNickname(user.id, value);
+      }
+    } catch (e) {
+      console.error(e);
+      Alert.alert('오류', '닉네임 저장에 실패했어요.');
+    }
     setEditingNickname(false);
     setSavingNickname(false);
   };

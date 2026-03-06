@@ -22,6 +22,8 @@ interface TodayReadingCardProps {
   completing: boolean;
   onPress?: () => void;
   memberProgress?: MemberProgressItem[];
+  /** user_id → 닉네임 (서버 profiles). 있으면 함께 읽는 사람들에 닉네임 표시 */
+  memberNicknames?: Record<string, string>;
   currentUserId?: string | null;
   currentUserNickname?: string;
 }
@@ -36,6 +38,7 @@ export function TodayReadingCard({
   completing,
   onPress,
   memberProgress = [],
+  memberNicknames,
   currentUserId,
   currentUserNickname,
 }: TodayReadingCardProps) {
@@ -77,7 +80,9 @@ export function TodayReadingCard({
             <View key={mp.user_id} style={styles.memberProgressItem}>
               <View style={styles.memberProgressRow}>
                 <Text style={[styles.memberProgressLabel, { fontSize: s(14), color: theme.text }]}>
-                  {currentUserId === mp.user_id ? (currentUserNickname || '나') : `멤버 ${i + 1}`}
+                  {currentUserId === mp.user_id
+                    ? (currentUserNickname || '나')
+                    : (memberNicknames?.[mp.user_id] ?? `멤버 ${i + 1}`)}
                 </Text>
                 <Text style={[styles.memberProgressStatus, { fontSize: s(13), color: theme.textSecondary }, mp.todayCompleted && { color: theme.doneText }]}>
                   {mp.todayCompleted ? '✓ 오늘 완료' : '○ 미완료'}

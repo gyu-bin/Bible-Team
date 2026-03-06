@@ -11,17 +11,21 @@ import {
   ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { lightTheme } from '@/constants/theme';
 import { useFontScale } from '@/contexts/FontSizeContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useDataRefresh } from '@/contexts/DataRefreshContext';
 import { addSharePost } from '@/lib/shareStorage';
 import { getCachedGroups, getLocalGroups } from '@/lib/cache';
 import type { ReadingGroupRow } from '@/types/database';
 
 export default function ShareCreateScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { theme } = useTheme();
+  const { invalidate } = useDataRefresh();
   const { fontScale } = useFontScale();
   const s = (n: number) => Math.round(n * fontScale);
   const [content, setContent] = useState('');
@@ -47,6 +51,7 @@ export default function ShareCreateScreen() {
         groupId: groupId ?? undefined,
         groupTitle: groupTitle ?? undefined,
       });
+      invalidate();
       router.back();
     } catch (e) {
       console.error(e);
@@ -58,10 +63,10 @@ export default function ShareCreateScreen() {
   return (
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: theme.bg }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={0}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 50 : 0}
     >
-      <View style={[styles.header, { paddingTop: 12, paddingBottom: 10, backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12), paddingBottom: 10, backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
           <Text style={[styles.cancelText, { fontSize: s(16), color: theme.textSecondary }]}>취소</Text>
         </TouchableOpacity>
@@ -102,15 +107,22 @@ export default function ShareCreateScreen() {
         </TouchableOpacity>
       </View>
 
-      <TextInput
-        style={[styles.input, { fontSize: s(16), color: theme.text, backgroundColor: theme.bg }]}
-        placeholder="읽은 말씀에 대한 나눔을 적어주세요 (글자 수 제한 없음)"
-        placeholderTextColor={theme.textSecondary}
-        value={content}
-        onChangeText={setContent}
-        multiline
-        textAlignVertical="top"
-      />
+      <ScrollView
+        style={styles.inputScroll}
+        contentContainerStyle={styles.inputScrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <TextInput
+          style={[styles.input, { fontSize: s(16), color: theme.text, backgroundColor: theme.bg }]}
+          placeholder="읽은 말씀에 대한 나눔을 적어주세요 (글자 수 제한 없음)"
+          placeholderTextColor={theme.textSecondary}
+          value={content}
+          onChangeText={setContent}
+          multiline
+          textAlignVertical="top"
+        />
+      </ScrollView>
 
       {/* 모임 선택 모달 */}
       <Modal visible={showGroupPicker} transparent animationType="fade">
@@ -195,8 +207,10 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   groupValue: { color: lightTheme.text, marginRight: 6 },
+  inputScroll: { flex: 1 },
+  inputScrollContent: { flexGrow: 1, paddingBottom: 24 },
   input: {
-    flex: 1,
+    minHeight: 200,
     padding: 20,
     color: lightTheme.text,
     backgroundColor: lightTheme.bg,

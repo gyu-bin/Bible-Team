@@ -1,5 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
+import { getCurrentUser } from '@/lib/supabase';
+import {
+  getCertificationsFromServer,
+  addCertificationToServer,
+  deleteCertificationFromServer,
+  clearCertificationsForGroupFromServer,
+} from '@/services/certificationService';
 
 const KEY_CERTIFICATIONS = '@bible_crew_certifications';
 const CERT_DIR_NAME = 'certifications';
@@ -34,6 +41,14 @@ async function setMap(map: Record<string, CertificationItem[]>): Promise<void> {
 }
 
 export async function getCertifications(groupId: string): Promise<CertificationItem[]> {
+  const user = await getCurrentUser().catch(() => null);
+  if (user) {
+    try {
+      return await getCertificationsFromServer(groupId);
+    } catch (e) {
+      console.warn('getCertificationsFromServer failed', e);
+    }
+  }
   const map = await getMap();
   const list = map[groupId];
   if (!Array.isArray(list)) return [];
@@ -71,6 +86,15 @@ export async function addCertification(
 }
 
 export async function deleteCertification(groupId: string, certificationId: string): Promise<void> {
+  const user = await getCurrentUser().catch(() => null);
+  if (user) {
+    try {
+      await deleteCertificationFromServer(groupId, certificationId);
+      return;
+    } catch (e) {
+      console.warn('deleteCertificationFromServer failed', e);
+    }
+  }
   const map = await getMap();
   const list = map[groupId];
   if (!Array.isArray(list)) return;
@@ -89,6 +113,15 @@ export async function deleteCertification(groupId: string, certificationId: stri
 }
 
 export async function clearCertificationsForGroup(groupId: string): Promise<void> {
+  const user = await getCurrentUser().catch(() => null);
+  if (user) {
+    try {
+      await clearCertificationsForGroupFromServer(groupId);
+      return;
+    } catch (e) {
+      console.warn('clearCertificationsForGroupFromServer failed', e);
+    }
+  }
   const map = await getMap();
   const list = map[groupId];
   if (Array.isArray(list)) {

@@ -24,6 +24,7 @@ import { getCertifications, addCertification, deleteCertification, type Certific
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { useFontScale } from '@/contexts/FontSizeContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useDataRefresh } from '@/contexts/DataRefreshContext';
 import type { ReadingGroupRow } from '@/types/database';
 
 const GAP = 8;
@@ -61,6 +62,7 @@ export default function GroupFeedScreen() {
   const { width, height } = useWindowDimensions();
   const { theme } = useTheme();
   const { fontScale } = useFontScale();
+  const { invalidate } = useDataRefresh();
   const s = (n: number) => Math.round(n * fontScale);
 
   const [group, setGroup] = useState<ReadingGroupRow | null>(null);
@@ -244,6 +246,7 @@ export default function GroupFeedScreen() {
           cameraPreviewTime
         );
         await load();
+        invalidate();
       }
       setCameraPreviewUri(null);
       setCameraPreviewTime('');

@@ -34,6 +34,19 @@ export interface Database {
         };
         Update: Partial<Database['public']['Tables']['reading_groups']['Insert']>;
       };
+      profiles: {
+        Row: {
+          user_id: string;
+          nickname: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          nickname?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['profiles']['Insert']>;
+      };
       group_members: {
         Row: {
           id: string;
@@ -75,5 +88,6 @@ export interface Database {
 }
 
 export type ReadingGroupRow = Database['public']['Tables']['reading_groups']['Row'];
+export type ProfileRow = Database['public']['Tables']['profiles']['Row'];
 export type GroupMemberRow = Database['public']['Tables']['group_members']['Row'];
 export type ReadingLogRow = Database['public']['Tables']['reading_logs']['Row'];

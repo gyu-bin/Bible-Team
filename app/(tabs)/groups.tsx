@@ -17,8 +17,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
-import { getMyGroups, createGroup, joinGroup } from '@/services/groupService';
-import { getCachedGroups, setCachedGroups, getLocalGroups, getOrCreateLocalUserId, createLocalGroup } from '@/lib/cache';
+import { getMyGroups, createGroup, joinGroup, getGroupByInviteCode, isMember } from '@/services/groupService';
+import { getCachedGroups, setCachedGroups } from '@/lib/cache';
 import { setGroupDescription } from '@/lib/groupDescriptionStorage';
 import { GroupListItem } from '@/components/GroupListItem';
 import { EmptyState } from '@/components/EmptyState';
@@ -26,6 +26,7 @@ import { BIBLE_BOOKS, OLD_TESTAMENT_BOOKS, NEW_TESTAMENT_BOOKS } from '@/constan
 import { lightTheme } from '@/constants/theme';
 import { useFontScale } from '@/contexts/FontSizeContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useDataRefresh } from '@/contexts/DataRefreshContext';
 import type { ReadingGroupRow } from '@/types/database';
 
 type CreateStep = 'form' | 'share';
@@ -35,6 +36,7 @@ export default function GroupsScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const { fontScale } = useFontScale();
+  const { refreshKey, invalidate } = useDataRefresh();
   const s = (n: number) => Math.round(n * fontScale);
   const [userId, setUserId] = useState<string | null>(null);
   const [groups, setGroups] = useState<ReadingGroupRow[]>([]);
@@ -50,6 +52,9 @@ export default function GroupsScreen() {
   const [description, setDescription] = useState('');
   const [creating, setCreating] = useState(false);
   const [createdGroup, setCreatedGroup] = useState<ReadingGroupRow | null>(null);
+  const [joinModalVisible, setJoinModalVisible] = useState(false);
+  const [inviteCodeInput, setInviteCodeInput] = useState('');
+  const [joining, setJoining] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -57,11 +62,8 @@ export default function GroupsScreen() {
       setUserId(user?.id ?? null);
 
       if (!user) {
-        const localGroups = await getLocalGroups();
-        setGroups(localGroups);
-        await setCachedGroups(localGroups);
-        setLoading(false);
-        setRefreshing(false);
+        setGroups([]);
+        await setCachedGroups([]);
         return;
       }
 
@@ -81,6 +83,10 @@ export default function GroupsScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    load();
+  }, [load, refreshKey]);
 
   useFocusEffect(
     useCallback(() => {
@@ -103,11 +109,19 @@ export default function GroupsScreen() {
     setModalVisible(false);
     setShowBookList(false);
     setCreatedGroup(null);
+    invalidate();
     load();
   };
 
   const handleCreate = async () => {
     const user = await ensureAnonymousUser().catch(() => null) ?? await getCurrentUser().catch(() => null);
+    if (!user) {
+      Alert.alert(
+        '모임 생성 불가',
+        '현재 Supabase 익명 로그인이 꺼져 있어요.\n\nSupabase 콘솔에서 Auth → Providers → Anonymous 를 활성화한 뒤 다시 시도해 주세요.'
+      );
+      return;
+    }
     const book = BIBLE_BOOKS.find((b) => b.nameKo === startBook.trim() || b.id === startBook.trim());
     if (!book) {
       Alert.alert('알림', '올바른 성경 책 이름을 선택해 주세요. (예: 창세기)');
@@ -130,20 +144,6 @@ export default function GroupsScreen() {
 
     setCreating(true);
     try {
-      if (!user) {
-        const localUserId = await getOrCreateLocalUserId();
-        const group = await createLocalGroup({
-          title: title.trim(),
-          leaderId: localUserId,
-          startBook: book.nameKo,
-          pagesPerDay: pages,
-          durationDays: days,
-        });
-        if (description.trim()) await setGroupDescription(group.id, description.trim());
-        setCreatedGroup(group);
-        setCreateStep('share');
-        return;
-      }
       const group = await createGroup({
         title: title.trim(),
         leaderId: user.id,
@@ -155,42 +155,92 @@ export default function GroupsScreen() {
       if (description.trim()) await setGroupDescription(group.id, description.trim());
       setCreatedGroup(group);
       setCreateStep('share');
+      invalidate();
     } catch (e: unknown) {
-      const err = e as { code?: string; message?: string };
-      const schemaError = err?.code === 'PGRST205' || (typeof err?.message === 'string' && err.message.includes('schema cache'));
-      if (schemaError && user) {
-        try {
-          const group = await createLocalGroup({
-            title: title.trim(),
-            leaderId: user.id,
-            startBook: book.nameKo,
-            pagesPerDay: pages,
-            durationDays: days,
-          });
-          if (description.trim()) await setGroupDescription(group.id, description.trim());
-          setCreatedGroup(group);
-          setCreateStep('share');
-        } catch (localErr) {
-          console.error(localErr);
-          Alert.alert('오류', '모임 생성에 실패했어요. Supabase에 테이블을 만든 뒤 다시 시도해 주세요.');
-        }
-      } else {
-        console.error(e);
-        Alert.alert('오류', e instanceof Error ? e.message : '모임 생성에 실패했어요.');
-      }
+      console.error(e);
+      const msg =
+        e && typeof e === 'object' && 'code' in (e as any) && (e as any).code === 'PGRST205'
+          ? 'Supabase에 테이블이 아직 없어요.\n\nSQL로 reading_groups / group_members 테이블을 만든 뒤 다시 시도해 주세요.'
+          : e instanceof Error
+            ? e.message
+            : '모임 생성에 실패했어요.';
+      Alert.alert('오류', msg);
     } finally {
       setCreating(false);
     }
   };
 
-  const shareInvite = async () => {
+  const getInviteMessage = (group: ReadingGroupRow) => {
+    const url = `https://bible-crew.app/group/${group.id}`;
+    return `📖 [바이블 크루] "${group.title}" 모임에 초대할게요!\n초대 코드: ${group.invite_code}\n${url}`;
+  };
+
+  const copyInviteAll = () => {
     if (!createdGroup) return;
-    const url = `https://bible-crew.app/group/${createdGroup.id}`;
-    const message = `📖 [바이블 크루] "${createdGroup.title}" 모임에 초대할게요!\n초대 코드: ${createdGroup.invite_code}\n${url}`;
+    const message = getInviteMessage(createdGroup).trim();
+    if (!message) return;
+    Share.share({ message, title: '모임 초대' }, { dialogTitle: '모임 초대 공유' }).catch((e) => {
+      if (e?.message?.includes('cancel') || e?.message?.includes('dismiss')) return;
+      Alert.alert('공유 실패', '공유에 실패했어요.');
+    });
+  };
+
+  const copyInviteCodeOnly = () => {
+    if (!createdGroup) return;
+    const code = String(createdGroup.invite_code ?? '').trim();
+    if (!code) return;
+    Share.share({ message: code, title: '초대 코드' }, { dialogTitle: '초대 코드 공유' }).catch((e) => {
+      if (e?.message?.includes('cancel') || e?.message?.includes('dismiss')) return;
+      Alert.alert('공유 실패', '공유에 실패했어요.');
+    });
+  };
+
+  const handleJoinByCode = async () => {
+    const code = inviteCodeInput.trim().toUpperCase().replace(/\s/g, '');
+    if (!code) {
+      Alert.alert('알림', '초대 코드를 입력해 주세요.');
+      return;
+    }
+    const user = await ensureAnonymousUser().catch(() => null) ?? await getCurrentUser().catch(() => null);
+    if (!user) {
+      Alert.alert(
+        '참여 불가',
+        '현재 Supabase 익명 로그인이 꺼져 있어요.\n\nSupabase 콘솔에서 Auth → Providers → Anonymous 를 활성화한 뒤 다시 시도해 주세요.'
+      );
+      return;
+    }
+    const userId = user.id;
+    setJoining(true);
     try {
-      await Share.share({ message, title: '모임 초대' });
-    } catch {
-      // user cancelled
+      const group = await getGroupByInviteCode(code);
+      if (!group) {
+        Alert.alert(
+          '알림',
+          '유효하지 않은 초대 코드예요.\n\n- 코드를 정확히 입력했는지 확인해 주세요.\n- 방금 만든 코드라면, 모임 생성이 서버에 성공했는지(에러가 없었는지) 확인해 주세요.'
+        );
+        return;
+      }
+      const already = await isMember(group.id, userId);
+      if (already) {
+        Alert.alert('알림', '이미 참여 중인 모임이에요.');
+        setJoinModalVisible(false);
+        setInviteCodeInput('');
+        return;
+      }
+      await joinGroup(group.id, userId);
+      setUserId(userId);
+      const list = await getMyGroups(userId);
+      await setCachedGroups(list);
+      setGroups(list);
+      invalidate();
+      setJoinModalVisible(false);
+      setInviteCodeInput('');
+      router.push(`/group/${group.id}`);
+    } catch (e) {
+      console.error(e);
+      Alert.alert('오류', e instanceof Error ? e.message : '참여에 실패했어요.');
+    } finally {
+      setJoining(false);
     }
   };
 
@@ -213,9 +263,14 @@ export default function GroupsScreen() {
       >
         <View style={styles.header}>
           <Text style={[styles.sectionTitle, { fontSize: s(20) }]}>참여 중인 모임 🌿</Text>
-          <TouchableOpacity style={styles.addButton} onPress={openCreate} activeOpacity={0.8}>
-            <Text style={[styles.addButtonText, { fontSize: s(14) }]}>+ 새 읽기 모임</Text>
-          </TouchableOpacity>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity style={[styles.joinByCodeButton, { borderColor: theme.border }]} onPress={() => setJoinModalVisible(true)}>
+              <Text style={[styles.joinByCodeButtonText, { fontSize: s(14), color: theme.text }]}>초대 코드로 참여</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.addButton} onPress={openCreate} activeOpacity={0.8}>
+              <Text style={[styles.addButtonText, { fontSize: s(14) }]}>+ 새 읽기 모임</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {groups.length === 0 ? (
@@ -321,13 +376,18 @@ export default function GroupsScreen() {
                     <Text style={[styles.shareMeta, { fontSize: s(15) }]}>
                       {createdGroup.start_book} · 하루 {createdGroup.pages_per_day}장 · {createdGroup.duration_days}일
                     </Text>
-                    <View style={[styles.inviteCodeBox, { backgroundColor: theme.bgSecondary }]}>
-                      <Text style={[styles.inviteCodeLabel, { fontSize: s(12) }]}>초대 코드</Text>
-                      <Text style={[styles.inviteCode, { color: theme.text, fontSize: s(24) }]}>{createdGroup.invite_code}</Text>
-                    </View>
+                    <TouchableOpacity
+                      style={[styles.inviteCodeBox, { backgroundColor: theme.bgSecondary }]}
+                      onPress={copyInviteCodeOnly}
+                      activeOpacity={0.8}
+                      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    >
+                      <Text style={[styles.inviteCodeLabel, { fontSize: s(12) }]} pointerEvents="none">초대 코드 (탭하면 복사)</Text>
+                      <Text style={[styles.inviteCode, { color: theme.text, fontSize: s(24) }]} pointerEvents="none">{createdGroup.invite_code}</Text>
+                    </TouchableOpacity>
                   </View>
-                  <TouchableOpacity style={styles.shareButton} onPress={shareInvite}>
-                    <Text style={[styles.shareButtonText, { fontSize: s(16) }]}>초대 링크 공유하기 📤</Text>
+                  <TouchableOpacity style={styles.shareButton} onPress={copyInviteAll} activeOpacity={0.8} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text style={[styles.shareButtonText, { fontSize: s(16) }]}>초대 코드·링크 복사 📋</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.doneButton} onPress={closeCreate}>
                     <Text style={[styles.doneButtonText, { fontSize: s(16) }]}>완료</Text>
@@ -381,6 +441,39 @@ export default function GroupsScreen() {
           </Modal>
         )}
       </Modal>
+
+      <Modal visible={joinModalVisible} transparent animationType="fade">
+        <View style={styles.joinModalOverlay}>
+          <View style={[styles.joinModalBox, { backgroundColor: theme.card }]}>
+            <Text style={[styles.joinModalTitle, { fontSize: s(18), color: theme.text }]}>초대 코드로 참여</Text>
+            <Text style={[styles.joinModalSub, { fontSize: s(14), color: theme.textSecondary, marginBottom: 12 }]}>
+              친구에게 받은 초대 코드를 입력하세요.
+            </Text>
+            <TextInput
+              style={[styles.joinModalInput, { backgroundColor: theme.bgSecondary, color: theme.text, fontSize: s(16) }]}
+              value={inviteCodeInput}
+              onChangeText={setInviteCodeInput}
+              placeholder="예: ABC12DEF"
+              placeholderTextColor={theme.textSecondary}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={12}
+            />
+            <View style={styles.joinModalActions}>
+              <TouchableOpacity style={[styles.joinModalCancel, { borderColor: theme.border }]} onPress={() => { setJoinModalVisible(false); setInviteCodeInput(''); }}>
+                <Text style={[styles.joinModalCancelText, { fontSize: s(15), color: theme.textSecondary }]}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.joinModalSubmit, { backgroundColor: theme.primary }]}
+                onPress={handleJoinByCode}
+                disabled={joining}
+              >
+                {joining ? <ActivityIndicator size="small" color="#FFF" /> : <Text style={[styles.joinModalSubmitText, { fontSize: s(15) }]}>참여하기</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -391,8 +484,16 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { fontSize: 15, color: lightTheme.textSecondary },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 },
   sectionTitle: { fontSize: 20, fontWeight: '700', color: lightTheme.text },
+  headerButtons: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  joinByCodeButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  joinByCodeButtonText: { fontSize: 14, fontWeight: '600' },
   addButton: {
     paddingVertical: 10,
     paddingHorizontal: 16,
@@ -458,8 +559,53 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   shareButtonText: { fontSize: 16, fontWeight: '600', color: '#FFF' },
+  copyButton: {
+    paddingVertical: 16,
+    borderRadius: 20,
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+  },
+  copyButtonText: { fontSize: 16, fontWeight: '600' },
   doneButton: { paddingVertical: 16, alignItems: 'center' },
   doneButtonText: { fontSize: 16, color: lightTheme.textSecondary },
+  joinModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  joinModalBox: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 20,
+    padding: 24,
+  },
+  joinModalTitle: { fontWeight: '700', marginBottom: 4 },
+  joinModalSub: {},
+  joinModalInput: {
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 20,
+  },
+  joinModalActions: { flexDirection: 'row', gap: 12 },
+  joinModalCancel: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  joinModalCancelText: {},
+  joinModalSubmit: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  joinModalSubmitText: { fontWeight: '600', color: '#FFF' },
   bookListHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',

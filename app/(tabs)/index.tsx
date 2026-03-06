@@ -4,6 +4,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getMyGroups } from '@/services/groupService';
 import { hasLoggedToday, logChapters, getGroupMemberProgress } from '@/services/readingLogService';
+import { getNicknamesByUserIds } from '@/services/profileService';
 import { getCachedGroups, getCachedLoggedToday, setCachedGroups, setCachedLoggedToday, setCachedLoggedTodayGroup, getLocalGroups, isLocalUserId, getOrCreateLocalUserId, getNickname } from '@/lib/cache';
 import { getTodayChapters } from '@/constants/bibleBooks';
 import { TodayReadingCard, type MemberProgressItem } from '@/components/TodayReadingCard';
@@ -11,6 +12,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { lightTheme } from '@/constants/theme';
 import { useFontScale } from '@/contexts/FontSizeContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useDataRefresh } from '@/contexts/DataRefreshContext';
 import type { ReadingGroupRow } from '@/types/database';
 
 function getDayIndex(createdAt: string): number {
@@ -26,6 +28,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const { theme } = useTheme();
   const { fontScale } = useFontScale();
+  const { refreshKey } = useDataRefresh();
   const s = (n: number) => Math.round(n * fontScale);
   const [userId, setUserId] = useState<string | null>(null);
   const [groups, setGroups] = useState<ReadingGroupRow[]>([]);
@@ -34,6 +37,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [memberProgress, setMemberProgress] = useState<Record<string, MemberProgressItem[]>>({});
+  const [memberNicknames, setMemberNicknames] = useState<Record<string, string>>({});
   const [myNickname, setMyNickname] = useState<string>('');
 
   const load = useCallback(async () => {
@@ -88,6 +92,10 @@ export default function HomeScreen() {
         })
       );
       setMemberProgress(progressMap);
+
+      const allUserIds = Array.from(new Set(Object.values(progressMap).flat().map((m) => m.user_id)));
+      const nickMap = await getNicknamesByUserIds(allUserIds).catch(() => ({}));
+      setMemberNicknames(nickMap);
     } catch (e) {
       console.error(e);
     } finally {
@@ -100,6 +108,10 @@ export default function HomeScreen() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    load();
+  }, [load, refreshKey]);
+
   useFocusEffect(
     useCallback(() => {
       getNickname().then((n) => setMyNickname(n ?? ''));
@@ -110,7 +122,7 @@ export default function HomeScreen() {
   const handleUndoComplete = async (group: ReadingGroupRow) => {
     setLoggedToday((prev) => ({ ...prev, [group.id]: false }));
     await setCachedLoggedTodayGroup(group.id, false);
-    const uid = userId ?? (await getOrCreateLocalUserId()).catch(() => null);
+    const uid = userId ?? await getOrCreateLocalUserId().catch(() => null);
     if (uid && memberProgress[group.id]) {
       setMemberProgress((prev) => ({
         ...prev,
@@ -213,6 +225,7 @@ export default function HomeScreen() {
             completing={completingId === group.id}
             onPress={() => router.push(`/group/${group.id}`)}
             memberProgress={memberProgress[group.id]}
+            memberNicknames={memberNicknames}
             currentUserId={userId ?? undefined}
             currentUserNickname={myNickname || undefined}
           />

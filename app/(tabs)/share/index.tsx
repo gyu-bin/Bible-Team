@@ -18,6 +18,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { lightTheme } from '@/constants/theme';
 import { useFontScale } from '@/contexts/FontSizeContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useDataRefresh } from '@/contexts/DataRefreshContext';
 import {
   getSharePosts,
   getShareCounts,
@@ -27,6 +28,7 @@ import {
   getShareComments,
   addShareComment,
 } from '@/lib/shareStorage';
+import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getOrCreateLocalUserId, getCachedGroups, getLocalGroups } from '@/lib/cache';
 import type { SharePost, ShareComment } from '@/types/share';
 
@@ -45,6 +47,7 @@ export default function ShareListScreen() {
   const router = useRouter();
   const { theme } = useTheme();
   const { fontScale } = useFontScale();
+  const { refreshKey } = useDataRefresh();
   const insets = useSafeAreaInsets();
   const s = (n: number) => Math.round(n * fontScale);
   const [posts, setPosts] = useState<SharePost[]>([]);
@@ -68,7 +71,8 @@ export default function ShareListScreen() {
 
   const load = useCallback(async () => {
     try {
-      const uid = await getOrCreateLocalUserId();
+      const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
+      const uid = user?.id ?? (await getOrCreateLocalUserId());
       setCurrentUserId(uid);
       await loadPosts();
     } catch (e) {
@@ -82,6 +86,10 @@ export default function ShareListScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    load();
+  }, [load, refreshKey]);
 
   useFocusEffect(
     useCallback(() => {
@@ -233,7 +241,8 @@ export default function ShareListScreen() {
       <Modal visible={!!detailPost} animationType="slide" transparent>
         <KeyboardAvoidingView
           style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
           <View style={[styles.detailModal, { backgroundColor: theme.bg }]}>
             <View style={[styles.detailModalHeader, { backgroundColor: theme.card, paddingTop: Math.max(insets.top, 12), paddingBottom: 12 }]}>
@@ -250,7 +259,7 @@ export default function ShareListScreen() {
             </View>
             {detailPost && (
               <>
-                <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailScrollContent}>
+                <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailScrollContent} keyboardShouldPersistTaps="handled">
                   <View style={[styles.detailCard, { backgroundColor: theme.card }]}>
                     <View style={styles.detailHeaderRow}>
                       <Text style={[styles.detailNickname, { fontSize: s(13) }]}>
@@ -290,7 +299,7 @@ export default function ShareListScreen() {
                     </View>
                   ))}
                 </ScrollView>
-                <View style={[styles.commentInputRow, { borderTopColor: theme.border }]}>
+                <View style={[styles.commentInputRow, { borderTopColor: theme.border, paddingBottom: Math.max(insets.bottom, 12) }]}>
                   <TextInput
                     style={[styles.commentInput, { fontSize: s(15) }]}
                     placeholder="댓글 입력..."

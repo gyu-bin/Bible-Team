@@ -4,6 +4,7 @@ import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { ensureAnonymousUser } from '@/lib/supabase';
 import { FontSizeProvider } from '@/contexts/FontSizeContext';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
+import { DataRefreshProvider } from '@/contexts/DataRefreshContext';
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -27,11 +28,13 @@ export default function RootLayout() {
   return (
     <FontSizeProvider>
       <ThemeProvider>
+      <DataRefreshProvider>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="group/[id]" options={{ headerShown: false }} />
       </Stack>
+      </DataRefreshProvider>
       </ThemeProvider>
     </FontSizeProvider>
   );

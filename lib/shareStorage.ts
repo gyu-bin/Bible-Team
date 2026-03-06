@@ -1,5 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getOrCreateLocalUserId, getNickname } from '@/lib/cache';
+import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
+import {
+  getSharePostsFromServer,
+  addSharePostToServer,
+  deleteSharePostFromServer,
+  getShareLikesFromServer,
+  toggleShareLikeOnServer,
+  getShareCommentsFromServer,
+  addShareCommentToServer,
+  getAllShareLikeCountsFromServer,
+  getAllShareCommentCountsFromServer,
+} from '@/services/shareService';
 import type { SharePost, ShareLike, ShareComment } from '@/types/share';
 
 const KEY_SHARE_POSTS = '@bible_crew_share_posts';
@@ -67,17 +79,37 @@ async function setStoredComments(comments: ShareComment[]): Promise<void> {
   }
 }
 
-/** 나눔 글 목록 (최신순) */
+/** 나눔 글 목록 (최신순). 로그인 시 서버, 아니면 로컬 */
 export async function getSharePosts(): Promise<SharePost[]> {
+  const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
+  if (user?.id) {
+    try {
+      return await getSharePostsFromServer();
+    } catch (e) {
+      console.warn('getSharePostsFromServer failed', e);
+    }
+  }
   const posts = await getStoredPosts();
   return [...posts].sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
 }
 
-/** 전체 좋아요/댓글 수 맵 (목록용) */
+/** 전체 좋아요/댓글 수 맵 (목록용). 로그인 시 서버, 아니면 로컬 */
 export async function getShareCounts(): Promise<{
   likeCountByPost: Record<string, number>;
   commentCountByPost: Record<string, number>;
 }> {
+  const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
+  if (user?.id) {
+    try {
+      const [likeCountByPost, commentCountByPost] = await Promise.all([
+        getAllShareLikeCountsFromServer(),
+        getAllShareCommentCountsFromServer(),
+      ]);
+      return { likeCountByPost, commentCountByPost };
+    } catch (e) {
+      console.warn('getShareCounts from server failed', e);
+    }
+  }
   const [likes, comments] = await Promise.all([getStoredLikes(), getStoredComments()]);
   const likeCountByPost: Record<string, number> = {};
   const commentCountByPost: Record<string, number> = {};
@@ -90,13 +122,21 @@ export async function getShareCounts(): Promise<{
   return { likeCountByPost, commentCountByPost };
 }
 
-/** 나눔 글 작성 (내용 + 선택한 모임) */
+/** 나눔 글 작성 (내용 + 선택한 모임). 로그인 시 서버에 저장 */
 export async function addSharePost(
   content: string,
   options?: { groupId?: string | null; groupTitle?: string | null }
 ): Promise<SharePost> {
-  const authorId = await getOrCreateLocalUserId();
   const authorNickname = (await getNickname()) || '익명';
+  const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
+  if (user?.id) {
+    try {
+      return await addSharePostToServer(user.id, authorNickname, content, options);
+    } catch (e) {
+      console.warn('addSharePostToServer failed', e);
+    }
+  }
+  const authorId = await getOrCreateLocalUserId();
   const post: SharePost = {
     id: generateId(),
     authorId,
@@ -111,15 +151,31 @@ export async function addSharePost(
   return post;
 }
 
-/** 특정 글 좋아요 목록 (userId 배열) */
+/** 특정 글 좋아요 목록 (userId 배열). 로그인 시 서버 */
 export async function getShareLikes(postId: string): Promise<string[]> {
+  const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
+  if (user?.id) {
+    try {
+      return await getShareLikesFromServer(postId);
+    } catch (e) {
+      console.warn('getShareLikesFromServer failed', e);
+    }
+  }
   const likes = await getStoredLikes();
   return likes.filter((l) => l.postId === postId).map((l) => l.userId);
 }
 
-/** 좋아요 토글 */
+/** 좋아요 토글. 로그인 시 서버 */
 export async function toggleShareLike(postId: string): Promise<boolean> {
-  const userId = await getOrCreateLocalUserId();
+  const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
+  const userId = user?.id ?? (await getOrCreateLocalUserId());
+  if (user?.id) {
+    try {
+      return await toggleShareLikeOnServer(postId, user.id);
+    } catch (e) {
+      console.warn('toggleShareLikeOnServer failed', e);
+    }
+  }
   const likes = await getStoredLikes();
   const idx = likes.findIndex((l) => l.postId === postId && l.userId === userId);
   if (idx >= 0) {
@@ -132,18 +188,34 @@ export async function toggleShareLike(postId: string): Promise<boolean> {
   return true;
 }
 
-/** 특정 글 댓글 목록 */
+/** 특정 글 댓글 목록. 로그인 시 서버 */
 export async function getShareComments(postId: string): Promise<ShareComment[]> {
+  const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
+  if (user?.id) {
+    try {
+      return await getShareCommentsFromServer(postId);
+    } catch (e) {
+      console.warn('getShareCommentsFromServer failed', e);
+    }
+  }
   const comments = await getStoredComments();
   return comments
     .filter((c) => c.postId === postId)
     .sort((a, b) => (a.createdAt > b.createdAt ? 1 : -1));
 }
 
-/** 댓글 작성 */
+/** 댓글 작성. 로그인 시 서버 */
 export async function addShareComment(postId: string, content: string): Promise<ShareComment> {
-  const authorId = await getOrCreateLocalUserId();
   const authorNickname = (await getNickname()) || '익명';
+  const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
+  if (user?.id) {
+    try {
+      return await addShareCommentToServer(postId, user.id, authorNickname, content);
+    } catch (e) {
+      console.warn('addShareCommentToServer failed', e);
+    }
+  }
+  const authorId = await getOrCreateLocalUserId();
   const comment: ShareComment = {
     id: generateId(),
     postId,
@@ -157,8 +229,17 @@ export async function addShareComment(postId: string, content: string): Promise<
   return comment;
 }
 
-/** 나눔 글 삭제 (해당 글의 좋아요·댓글 함께 삭제) */
+/** 나눔 글 삭제. 로그인 시 서버(본인 글만), 아니면 로컬 */
 export async function deleteSharePost(postId: string): Promise<void> {
+  const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
+  if (user?.id) {
+    try {
+      await deleteSharePostFromServer(postId, user.id);
+      return;
+    } catch (e) {
+      console.warn('deleteSharePostFromServer failed', e);
+    }
+  }
   const posts = await getStoredPosts();
   await setStoredPosts(posts.filter((p) => p.id !== postId));
   const likes = await getStoredLikes();

@@ -8,8 +8,9 @@ import {
   TouchableOpacity,
   Alert,
   ScrollView,
+  Share,
+  Platform,
 } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getGroupById, getGroupMembers, joinGroup, isMember, leaveGroup, deleteGroup } from '@/services/groupService';
@@ -18,8 +19,10 @@ import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getCachedGroups, setCachedGroups, getLocalGroupById, isLocalUserId, getNickname, removeGroupFromMyCache, deleteLocalGroup, getOrCreateLocalUserId } from '@/lib/cache';
 import { getGroupDescription, setGroupDescription } from '@/lib/groupDescriptionStorage';
 import { getCertifications, clearCertificationsForGroup, type CertificationItem } from '@/lib/certificationStorage';
+import { getNicknamesByUserIds, upsertMyNickname } from '@/services/profileService';
 import { useFontScale } from '@/contexts/FontSizeContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useDataRefresh } from '@/contexts/DataRefreshContext';
 
 export default function GroupDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -27,6 +30,7 @@ export default function GroupDetailScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const { fontScale } = useFontScale();
+  const { invalidate } = useDataRefresh();
   const s = (n: number) => Math.round(n * fontScale);
   const [group, setGroup] = useState<ReadingGroupRow | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,6 +38,7 @@ export default function GroupDetailScreen() {
   const [alreadyMember, setAlreadyMember] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [members, setMembers] = useState<{ user_id: string; joined_at: string }[]>([]);
+  const [memberNicknames, setMemberNicknames] = useState<Record<string, string>>({});
   const [myNickname, setMyNickname] = useState<string>('');
   const [description, setDescription] = useState('');
   const [certifications, setCertifications] = useState<CertificationItem[]>([]);
@@ -66,6 +71,11 @@ export default function GroupDetailScreen() {
         setCurrentUserId(uid);
         setMyNickname(nickname ?? '');
 
+        // 로컬 닉네임을 서버(profiles)에 동기화 → 다른 멤버에게 내 닉네임이 보이게
+        if (user?.id && nickname?.trim()) {
+          upsertMyNickname(user.id, nickname).catch(() => {});
+        }
+
         if (groupData && user) {
           if (isLocal) {
             setAlreadyMember(true);
@@ -75,6 +85,11 @@ export default function GroupDetailScreen() {
             setAlreadyMember(member);
             const list = await getGroupMembers(groupData.id);
             setMembers(list);
+            const nickMap = await getNicknamesByUserIds(list.map((m) => m.user_id)).catch((err) => {
+              console.warn('getNicknamesByUserIds failed', err);
+              return {};
+            });
+            setMemberNicknames(nickMap);
           }
         } else if (groupData && isLocal) {
           setAlreadyMember(true);
@@ -84,6 +99,8 @@ export default function GroupDetailScreen() {
         } else if (groupData && !isLocal) {
           const list = await getGroupMembers(groupData.id);
           setMembers(list);
+          const nickMap = await getNicknamesByUserIds(list.map((m) => m.user_id)).catch(() => ({}));
+          setMemberNicknames(nickMap);
         }
       } catch (e) {
         console.error(e);
@@ -94,16 +111,22 @@ export default function GroupDetailScreen() {
     })();
   }, [id]);
 
+  const isLocalGroup = typeof id === 'string' && (id.startsWith('local_') || isLocalUserId(id));
+  const isLeader = !!group && !!currentUserId && group.leader_id === currentUserId;
+
   useFocusEffect(
     useCallback(() => {
       getNickname().then((n) => setMyNickname(n ?? ''));
       if (!id || !group?.id) return;
       getCertifications(group.id).then(setCertifications);
-    }, [id, group?.id])
+      // 멤버 닉네임 다시 불러오기 (다른 사람이 설정에서 닉네임 저장했을 수 있음)
+      if (group && !isLocalGroup && members.length > 0) {
+        getNicknamesByUserIds(members.map((m) => m.user_id))
+          .then(setMemberNicknames)
+          .catch(() => {});
+      }
+    }, [id, group?.id, members.length, isLocalGroup])
   );
-
-  const isLocalGroup = typeof id === 'string' && (id.startsWith('local_') || isLocalUserId(id));
-  const isLeader = !!group && !!currentUserId && group.leader_id === currentUserId;
 
   const handleLeave = () => {
     if (!group || !currentUserId) return;
@@ -120,10 +143,12 @@ export default function GroupDetailScreen() {
             try {
               if (isLocalGroup) {
                 await removeGroupFromMyCache(group.id);
+                invalidate();
                 router.replace('/(tabs)/groups');
               } else {
                 await leaveGroup(group.id, currentUserId);
                 await removeGroupFromMyCache(group.id);
+                invalidate();
                 router.replace('/(tabs)/groups');
               }
             } catch (e) {
@@ -155,10 +180,12 @@ export default function GroupDetailScreen() {
               await clearCertificationsForGroup(group.id);
               if (isLocalGroup) {
                 await deleteLocalGroup(group.id);
+                invalidate();
                 router.replace('/(tabs)/groups');
               } else {
                 await deleteGroup(group.id);
                 await removeGroupFromMyCache(group.id);
+                invalidate();
                 router.replace('/(tabs)/groups');
               }
             } catch (e) {
@@ -173,12 +200,18 @@ export default function GroupDetailScreen() {
     );
   };
 
-  const handleShare = async () => {
+  const handleShare = () => {
     if (!group) return;
     const url = `https://bible-crew.app/group/${group.id}`;
-    const text = `📖 [바이블 크루] "${group.title}" 모임 초대\n초대 코드: ${group.invite_code}\n${url}`;
-    await Clipboard.setStringAsync(text);
-    Alert.alert('복사 완료', '초대 코드와 링크가 복사되었어요. 원하는 곳에 붙여넣기 하세요.');
+    const message = `📖 [바이블 크루] "${group.title}" 모임 초대\n초대 코드: ${group.invite_code}\n${url}`.trim();
+    Share.share(
+      { message, title: '모임 초대', url: Platform.OS === 'ios' ? url : undefined },
+      { dialogTitle: '모임 초대 공유' }
+    ).catch((e) => {
+      if (e?.message?.includes('cancel') || e?.message?.includes('dismiss')) return;
+      console.warn('Share failed', e);
+      Alert.alert('공유 실패', '공유에 실패했어요.');
+    });
   };
 
   const handleJoin = async () => {
@@ -200,6 +233,7 @@ export default function GroupDetailScreen() {
       if (!cached.some((g) => g.id === group.id)) {
         await setCachedGroups([group, ...cached]);
       }
+      invalidate();
       Alert.alert('참여 완료 🎉', '모임에 참여했어요!', [
         { text: '확인', onPress: () => router.replace('/(tabs)/groups') },
       ]);
@@ -255,7 +289,9 @@ export default function GroupDetailScreen() {
           {members.map((m, i) => (
             <View key={m.user_id} style={styles.memberRow}>
               <Text style={[styles.memberLabel, { fontSize: s(15), color: theme.text }]}>
-                {currentUserId === m.user_id ? (myNickname || '나') : `멤버 ${i + 1}`}
+                {currentUserId === m.user_id
+                  ? (myNickname || memberNicknames[m.user_id] || '나')
+                  : (memberNicknames[m.user_id] || `멤버 ${i + 1}`)}
               </Text>
             </View>
           ))}
