@@ -149,13 +149,13 @@ export default function SettingsScreen() {
               {email ? email : '바이블 크루와 함께 읽는 중 ✨'}
             </Text>
           </View>
-          {email ? (
+          {/* {email ? (
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.8}>
             <Text style={[styles.logoutButtonText, { fontSize: s(15) }]}>로그아웃</Text>
           </TouchableOpacity>
           ) : (
             <Text style={[styles.anonHint, { fontSize: s(13), color: theme.textSecondary }]}>로그인 없이도 모임 만들기·참여·읽기 기록이 가능해요.</Text>
-          )}
+          )} */}
         </View>
 
         <Text style={[styles.sectionTitle, { marginTop: 24, fontSize: s(13), color: theme.textSecondary }]}>앱</Text>
