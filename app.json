@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "Bible Crew",
+    "slug": "bible-crew",
+    "version": "1.0.0",
+    "scheme": "bible-crew",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.biblecrew.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.biblecrew.app",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "bible-crew",
+              "host": "group",
+              "pathPrefix": "/"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "읽기 인증용으로 사진을 선택할 수 있어요.",
+          "cameraPermission": "읽기 인증용으로 카메라를 사용해요."
+        }
+      ]
+    ]
+  }
+}
