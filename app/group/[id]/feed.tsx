@@ -87,6 +87,7 @@ export default function GroupFeedScreen() {
   const stampDragStartRef = useRef({ x: 20, y: 200 });
   const [selectedCert, setSelectedCert] = useState<CertificationItem | null>(null);
   const [deletingCertId, setDeletingCertId] = useState<string | null>(null);
+  const [failedImageIds, setFailedImageIds] = useState<Set<string>>(new Set());
   const stampViewRef = useRef<View | null>(null);
 
   const STAMP_OVERLAY_W = 160;
@@ -127,6 +128,7 @@ export default function GroupFeedScreen() {
 
   const load = useCallback(async () => {
     if (!id || typeof id !== 'string') return;
+    setFailedImageIds(new Set());
     try {
       const groupData = await getGroupById(id);
       setGroup(groupData ?? null);
@@ -242,7 +244,7 @@ export default function GroupFeedScreen() {
       await new Promise<void>((r) => requestAnimationFrame(() => r()));
       const uri = await captureRef(stampViewRef, {
         format: 'jpg',
-        quality: 0.9,
+        quality: 0.6,
         result: 'tmpfile',
       });
       if (uri) {
@@ -255,12 +257,13 @@ export default function GroupFeedScreen() {
         );
         await load();
         invalidate();
+        setCameraPreviewUri(null);
+        setCameraPreviewTime('');
+        Alert.alert('저장됐어요', '인증 사진이 피드에 올라갔어요.');
       }
-      setCameraPreviewUri(null);
-      setCameraPreviewTime('');
     } catch (e) {
       console.error(e);
-      Alert.alert('오류', '인증 사진 저장에 실패했어요.');
+      Alert.alert('올리기 실패', '인증 사진 저장에 실패했어요. 다시 시도해 주세요.');
     } finally {
       setUploading(false);
     }
@@ -397,11 +400,24 @@ export default function GroupFeedScreen() {
                 onPress={() => setSelectedCert(cert)}
                 activeOpacity={0.8}
               >
-                <Image
-                  source={{ uri: cert.imagePath }}
-                  style={[styles.gridImage, { width: cardSize, height: cardSize }]}
-                  resizeMode="cover"
-                />
+                {cert.imagePath && !failedImageIds.has(cert.id) ? (
+                  <Image
+                    key={cert.id}
+                    source={{
+                      uri: cert.imagePath.startsWith('data:')
+                        ? cert.imagePath
+                        : cert.imagePath + (cert.imagePath.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(cert.createdAt),
+                    }}
+                    style={[styles.gridImage, { width: cardSize, height: cardSize }]}
+                    resizeMode="cover"
+                    onError={() => setFailedImageIds((prev) => new Set(prev).add(cert.id))}
+                  />
+                ) : (
+                  <View style={[styles.gridImagePlaceholder, { width: cardSize, height: cardSize, backgroundColor: theme.bgSecondary }]}>
+                    <Ionicons name="image-outline" size={s(40)} color={theme.textSecondary} />
+                    <Text style={[styles.gridImagePlaceholderText, { fontSize: s(11), color: theme.textSecondary }]}>이미지 없음</Text>
+                  </View>
+                )}
                 <Text style={[styles.gridNickname, { fontSize: s(13), color: theme.text }]} numberOfLines={1}>
                   {cert.userNickname}
                 </Text>
@@ -425,11 +441,23 @@ export default function GroupFeedScreen() {
                 onPress={() => setSelectedCert(null)}
               />
               <View style={[styles.largeModalContent, { maxWidth: width, maxHeight: height - 100 }]}>
-                <Image
-                  source={{ uri: selectedCert.imagePath }}
-                  style={[styles.largeModalImage, { width: largeImageSize, height: largeImageSize }]}
-                  resizeMode="contain"
-                />
+                {selectedCert.imagePath ? (
+                  <Image
+                    key={selectedCert.id}
+                    source={{
+                      uri: selectedCert.imagePath.startsWith('data:')
+                        ? selectedCert.imagePath
+                        : selectedCert.imagePath + (selectedCert.imagePath.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(selectedCert.createdAt),
+                    }}
+                    style={[styles.largeModalImage, { width: largeImageSize, height: largeImageSize }]}
+                    resizeMode="contain"
+                  />
+                ) : (
+                  <View style={[styles.largeModalImagePlaceholder, { width: largeImageSize, height: largeImageSize, backgroundColor: theme.bgSecondary }]}>
+                    <Ionicons name="image-outline" size={s(48)} color={theme.textSecondary} />
+                    <Text style={[styles.gridImagePlaceholderText, { fontSize: s(14), color: theme.textSecondary }]}>이미지를 불러올 수 없어요</Text>
+                  </View>
+                )}
                 <View style={[styles.largeModalInfo, { backgroundColor: theme.card }]}>
                   <Text style={[styles.largeModalNickname, { fontSize: s(15), color: theme.text }]}>
                     {selectedCert.userNickname}
@@ -507,6 +535,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: '#eee',
   },
+  gridImagePlaceholder: {
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  gridImagePlaceholderText: { marginTop: 6 },
   gridNickname: { marginTop: 6, fontWeight: '600' },
   gridTimeLabel: { marginTop: 2 },
   stampModalOverlay: {
@@ -566,6 +600,11 @@ const styles = StyleSheet.create({
   largeModalImage: {
     borderRadius: 12,
     backgroundColor: '#000',
+  },
+  largeModalImagePlaceholder: {
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   largeModalInfo: {
     paddingVertical: 12,

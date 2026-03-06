@@ -1,8 +1,19 @@
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from '@/lib/supabase';
-import { uploadCertificationImage, deleteCertificationImageFromStorage } from '@/lib/supabaseStorage';
+import { deleteCertificationImageFromStorage, getCertificationSignedUrl } from '@/lib/supabaseStorage';
 import type { CertificationItem } from '@/lib/certificationStorage';
 
 const TABLE = 'certifications';
+
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/$/, '') ?? '';
+const STORAGE_PUBLIC_BASE = SUPABASE_URL ? `${SUPABASE_URL}/storage/v1/object/public/certifications` : '';
+
+function toFullImageUrl(imageUrl: string | null | undefined): string {
+  if (!imageUrl) return '';
+  if (imageUrl.startsWith('http') || imageUrl.startsWith('file://')) return imageUrl;
+  if (STORAGE_PUBLIC_BASE) return `${STORAGE_PUBLIC_BASE}/${imageUrl.replace(/^\//, '')}`;
+  return imageUrl;
+}
 
 export async function getCertificationsFromServer(groupId: string): Promise<CertificationItem[]> {
   const { data, error } = await (supabase as any)
@@ -12,15 +23,29 @@ export async function getCertificationsFromServer(groupId: string): Promise<Cert
     .order('created_at', { ascending: false });
   if (error) throw error;
   if (!Array.isArray(data)) return [];
-  return data.map((row: { id: string; user_id: string; user_nickname: string; image_url: string; created_at: string }) => ({
-    id: row.id,
-    userId: row.user_id,
-    userNickname: row.user_nickname || '나',
-    imagePath: row.image_url,
-    createdAt: row.created_at,
-  }));
+  const rows = data as { id: string; user_id: string; user_nickname: string; image_url: string; created_at: string }[];
+  const items: CertificationItem[] = [];
+  for (const row of rows) {
+    let imagePath = row.image_url ?? '';
+    if (!imagePath.startsWith('data:')) {
+      const storedUrl = toFullImageUrl(row.image_url);
+      imagePath = storedUrl
+        ? await getCertificationSignedUrl(row.image_url).catch(() => storedUrl)
+        : '';
+      imagePath = imagePath || storedUrl;
+    }
+    items.push({
+      id: row.id,
+      userId: row.user_id,
+      userNickname: row.user_nickname || '나',
+      imagePath,
+      createdAt: row.created_at,
+    });
+  }
+  return items;
 }
 
+/** 이미지를 base64로 DB에 저장. URL/Storage는 환경에 따라 안 보일 수 있어서, 화면에 확실히 보이게 이 방식 사용 */
 export async function addCertificationToServer(
   groupId: string,
   userId: string,
@@ -28,10 +53,12 @@ export async function addCertificationToServer(
   imageUri: string,
   createdAt?: string
 ): Promise<CertificationItem> {
-  const fileId = `cert_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   const isPng = imageUri.toLowerCase().includes('.png');
   const contentType = isPng ? 'image/png' : 'image/jpeg';
-  const imageUrl = await uploadCertificationImage(groupId, imageUri, fileId, contentType);
+  const base64 = await FileSystem.readAsStringAsync(imageUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const imageUrl = `data:${contentType};base64,${base64}`;
 
   const { data, error } = await (supabase as any).from(TABLE).insert({
     group_id: groupId,
@@ -59,7 +86,9 @@ export async function deleteCertificationFromServer(groupId: string, certificati
     .eq('group_id', groupId)
     .single();
   if (selectError || !row?.image_url) return;
-  await deleteCertificationImageFromStorage(row.image_url);
+  if (row.image_url.startsWith('http')) {
+    await deleteCertificationImageFromStorage(row.image_url);
+  }
   await (supabase as any).from(TABLE).delete().eq('id', certificationId).eq('group_id', groupId);
 }
 
@@ -67,7 +96,7 @@ export async function clearCertificationsForGroupFromServer(groupId: string): Pr
   const { data: rows } = await (supabase as any).from(TABLE).select('image_url').eq('group_id', groupId);
   if (Array.isArray(rows)) {
     for (const r of rows) {
-      if (r?.image_url) await deleteCertificationImageFromStorage(r.image_url);
+      if (r?.image_url?.startsWith('http')) await deleteCertificationImageFromStorage(r.image_url);
     }
   }
   await (supabase as any).from(TABLE).delete().eq('group_id', groupId);

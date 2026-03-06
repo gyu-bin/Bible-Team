@@ -49,6 +49,30 @@ export async function uploadCertificationImage(
 }
 
 /**
+ * DB에 저장된 image_url(공개 URL 또는 경로)로 1시간 유효한 서명 URL 생성.
+ * 공개 URL이 로드되지 않을 때(정책/캐시 등) 사용.
+ */
+export async function getCertificationSignedUrl(imageUrl: string | null | undefined): Promise<string> {
+  if (!imageUrl?.trim()) return '';
+  let path: string;
+  if (imageUrl.startsWith('http')) {
+    try {
+      const url = new URL(imageUrl);
+      const m = url.pathname.match(/\/storage\/v1\/object\/public\/certifications\/(.+)/);
+      path = (m?.[1] ?? '').replace(/^\/+/, '');
+    } catch {
+      return imageUrl;
+    }
+  } else {
+    path = imageUrl.replace(/^\/+/, '');
+  }
+  if (!path) return imageUrl;
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 60);
+  if (error || !data?.signedUrl) return imageUrl;
+  return data.signedUrl;
+}
+
+/**
  * Storage에서 파일 삭제 (경로는 public URL에서 추출)
  */
 export async function deleteCertificationImageFromStorage(publicUrl: string): Promise<void> {

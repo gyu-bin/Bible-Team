@@ -29,7 +29,8 @@ import {
   addShareComment,
 } from '@/lib/shareStorage';
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
-import { getOrCreateLocalUserId, getCachedGroups, getLocalGroups } from '@/lib/cache';
+import { getOrCreateLocalUserId, getCachedGroups, getLocalGroups, getNickname } from '@/lib/cache';
+import { getNicknamesByUserIds } from '@/services/profileService';
 import type { SharePost, ShareComment } from '@/types/share';
 
 function formatDate(iso: string): string {
@@ -63,6 +64,8 @@ export default function ShareListScreen() {
   const [commentCountByPost, setCommentCountByPost] = useState<Record<string, number>>({});
   const [filterGroupId, setFilterGroupId] = useState<string | null>(null);
   const [filterGroups, setFilterGroups] = useState<{ id: string; title: string }[]>([]);
+  const [authorNicknamesMap, setAuthorNicknamesMap] = useState<Record<string, string>>({});
+  const [currentUserNickname, setCurrentUserNickname] = useState('');
   const params = useLocalSearchParams<{ groupId?: string }>();
 
   const loadPosts = useCallback(async () => {
@@ -70,6 +73,14 @@ export default function ShareListScreen() {
     setPosts(list);
     setLikeCountByPost(counts.likeCountByPost);
     setCommentCountByPost(counts.commentCountByPost);
+    const authorIds = [...new Set(list.map((p) => p.authorId).filter(Boolean))];
+    if (authorIds.length > 0) {
+      const nickMap = await getNicknamesByUserIds(authorIds).catch(() => ({}));
+      setAuthorNicknamesMap(nickMap);
+    }
+    const currentNick = await getNickname();
+    setCurrentUserNickname(currentNick ?? '');
+    return list;
   }, []);
 
   const load = useCallback(async () => {
@@ -127,7 +138,14 @@ export default function ShareListScreen() {
     ]);
     setDetailLikes(likes);
     setDetailComments(comments);
+    const commentAuthorIds = [...new Set(comments.map((c) => c.authorId).filter(Boolean))];
+    if (commentAuthorIds.length > 0) {
+      getNicknamesByUserIds(commentAuthorIds).then((m) => setAuthorNicknamesMap((prev) => ({ ...prev, ...m }))).catch(() => {});
+    }
   };
+
+  const displayNickname = (authorId: string, storedNickname: string) =>
+    authorId === currentUserId ? (currentUserNickname || storedNickname) : (authorNicknamesMap[authorId] ?? storedNickname);
 
   const handleLike = async () => {
     if (!detailPost) return;
@@ -232,7 +250,7 @@ export default function ShareListScreen() {
                 activeOpacity={0.8}
               >
                 <View style={styles.cardHeaderRow}>
-                  <Text style={[styles.cardNickname, { fontSize: s(13) }]}>{post.authorNickname}</Text>
+                  <Text style={[styles.cardNickname, { fontSize: s(13) }]}>{displayNickname(post.authorId, post.authorNickname)}</Text>
                   {post.groupTitle ? (
                     <Text style={[styles.cardGroupTag, { fontSize: s(11) }]} numberOfLines={1}>{post.groupTitle}</Text>
                   ) : null}
@@ -300,7 +318,7 @@ export default function ShareListScreen() {
                   <View style={[styles.detailCard, { backgroundColor: theme.card }]}>
                     <View style={styles.detailHeaderRow}>
                       <Text style={[styles.detailNickname, { fontSize: s(13) }]}>
-                        {detailPost.authorNickname}
+                        {displayNickname(detailPost.authorId, detailPost.authorNickname)}
                       </Text>
                       {detailPost.groupTitle ? (
                         <Text style={[styles.detailGroupTag, { fontSize: s(12) }]}>{detailPost.groupTitle}</Text>
@@ -330,7 +348,7 @@ export default function ShareListScreen() {
                   <Text style={[styles.commentsTitle, { fontSize: s(14) }]}>댓글 ({detailComments.length})</Text>
                   {detailComments.map((c) => (
                     <View key={c.id} style={[styles.commentRow, { borderBottomColor: theme.border }]}>
-                      <Text style={[styles.commentNickname, { fontSize: s(13) }]}>{c.authorNickname}</Text>
+                      <Text style={[styles.commentNickname, { fontSize: s(13) }]}>{displayNickname(c.authorId, c.authorNickname)}</Text>
                       <Text style={[styles.commentContent, { fontSize: s(14) }]}>{c.content}</Text>
                       <Text style={[styles.commentDate, { fontSize: s(11) }]}>{formatDate(c.createdAt)}</Text>
                     </View>

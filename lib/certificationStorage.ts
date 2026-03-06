@@ -62,6 +62,16 @@ export async function addCertification(
   imageUri: string,
   createdAt?: string
 ): Promise<CertificationItem> {
+  const user = await getCurrentUser().catch(() => null);
+  if (user?.id) {
+    try {
+      return await addCertificationToServer(groupId, userId, userNickname, imageUri, createdAt);
+    } catch (e) {
+      console.warn('addCertificationToServer failed', e);
+      throw e;
+    }
+  }
+
   const dir = await getCertDir();
   const id = `cert_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   const ext = imageUri.toLowerCase().includes('.png') ? '.png' : '.jpg';

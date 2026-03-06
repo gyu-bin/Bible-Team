@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, KeyboardAvoidingView, Platform, Switch } from 'react-native';
+import { useRouter } from 'expo-router';
 import { ensureAnonymousUser, getCurrentUser, signOut } from '@/lib/supabase';
 import { getNickname, setNickname } from '@/lib/cache';
 import { lightTheme } from '@/constants/theme';
@@ -7,8 +8,10 @@ import { useFontScale } from '@/contexts/FontSizeContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import type { FontSizeKey } from '@/lib/cache';
 import { upsertMyNickname } from '@/services/profileService';
+import { clearOnboardingDone } from '@/components/OnboardingModal';
 
 const NICKNAME_MAX_LENGTH = 10;
+const APP_VERSION = require('../../app.json').expo.version;
 
 const FONT_SIZE_OPTIONS: { key: FontSizeKey; label: string }[] = [
   { key: 'small', label: '작게' },
@@ -17,6 +20,7 @@ const FONT_SIZE_OPTIONS: { key: FontSizeKey; label: string }[] = [
 ];
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const { theme, isDarkMode, setDarkMode } = useTheme();
   const { fontScale, fontSizeKey, setFontSizeKey } = useFontScale();
   const [email, setEmail] = useState<string | null>(null);
@@ -143,12 +147,6 @@ export default function SettingsScreen() {
               </View>
             </View>
           )}
-          <View style={[styles.row, { borderBottomColor: theme.border }]}>
-            <Text style={[styles.rowLabel, { fontSize: s(15), color: theme.textSecondary }]}>상태</Text>
-            <Text style={[styles.rowValue, { color: theme.text, fontSize: s(15) }]} numberOfLines={1}>
-              {email ? email : '바이블 크루와 함께 읽는 중 ✨'}
-            </Text>
-          </View>
         </View>
 
         <Text style={[styles.sectionTitle, { marginTop: 24, fontSize: s(13), color: theme.textSecondary }]}>앱</Text>
@@ -187,13 +185,22 @@ export default function SettingsScreen() {
             ))}
           </View>
         </View>
-        <View style={[styles.row, { borderBottomColor: theme.border }]}>
-          <Text style={[styles.rowLabel, { fontSize: s(15), color: theme.textSecondary }]}>앱 이름</Text>
-          <Text style={[styles.rowValue, { color: theme.text, fontSize: s(15) }]} numberOfLines={1}>바이블 크루 📖</Text>
-        </View>
+        <TouchableOpacity
+          style={[styles.row, { borderBottomColor: theme.border }]}
+          onPress={async () => {
+            await clearOnboardingDone();
+            Alert.alert('확인', '모임이 없을 때 홈에서 사용법이 다시 표시돼요.', [
+              { text: '확인', onPress: () => router.push('/(tabs)') },
+            ]);
+          }}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.rowLabel, { fontSize: s(15), color: theme.textSecondary }]}>앱 사용법 다시 보기</Text>
+          <Text style={[styles.rowChevron, { fontSize: s(18), color: theme.textSecondary }]}>›</Text>
+        </TouchableOpacity>
         <View style={[styles.row, styles.rowLast, { borderBottomColor: theme.border }]}>
           <Text style={[styles.rowLabel, { fontSize: s(15), color: theme.textSecondary }]}>버전</Text>
-          <Text style={[styles.rowValue, { color: theme.text, fontSize: s(15) }]}>1.0.0</Text>
+          <Text style={[styles.rowValue, { color: theme.text, fontSize: s(15) }]}>{APP_VERSION}</Text>
         </View>
       </View>
     </ScrollView>

@@ -20,6 +20,13 @@ export async function setOnboardingDone(): Promise<void> {
   } catch {}
 }
 
+/** 온보딩 다시 보기용 (설정에서 호출) */
+export async function clearOnboardingDone(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(KEY_ONBOARDING_DONE, 'false');
+  } catch {}
+}
+
 interface OnboardingModalProps {
   visible: boolean;
   onDismiss: () => void;
