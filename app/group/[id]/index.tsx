@@ -319,6 +319,22 @@ export default function GroupDetailScreen() {
         </TouchableOpacity>
       ) : null}
 
+      {alreadyMember ? (
+        <TouchableOpacity
+          style={[styles.certSection, { borderTopColor: theme.border }]}
+          onPress={() => router.push({ pathname: '/(tabs)/share', params: { groupId: id as string } })}
+          activeOpacity={0.7}
+        >
+          <View style={styles.certSectionLeft}>
+            <Text style={[styles.memberSectionTitle, { fontSize: s(13), color: theme.textSecondary }]}>이 모임 나눔 보기</Text>
+            <Text style={[styles.certSectionHint, { fontSize: s(13), color: theme.textSecondary }]}>
+              이 모임에서 올린 나눔 글만 볼 수 있어요
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={s(20)} color={theme.textSecondary} />
+        </TouchableOpacity>
+      ) : null}
+
       {!alreadyMember ? (
         <TouchableOpacity
           style={[styles.button, { backgroundColor: theme.primary }, joining && styles.buttonDisabled]}

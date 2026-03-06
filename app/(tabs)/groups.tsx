@@ -15,7 +15,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getMyGroups, createGroup, joinGroup, getGroupByInviteCode, isMember } from '@/services/groupService';
 import { getCachedGroups, setCachedGroups } from '@/lib/cache';
@@ -33,6 +33,7 @@ type CreateStep = 'form' | 'share';
 
 export default function GroupsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ action?: string }>();
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const { fontScale } = useFontScale();
@@ -55,8 +56,10 @@ export default function GroupsScreen() {
   const [joinModalVisible, setJoinModalVisible] = useState(false);
   const [inviteCodeInput, setInviteCodeInput] = useState('');
   const [joining, setJoining] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   const load = useCallback(async () => {
+    setLoadError(false);
     try {
       const user = await ensureAnonymousUser().catch(() => null) ?? await getCurrentUser().catch(() => null);
       setUserId(user?.id ?? null);
@@ -74,6 +77,7 @@ export default function GroupsScreen() {
       await setCachedGroups(list);
     } catch (e) {
       console.error(e);
+      setLoadError(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -93,6 +97,16 @@ export default function GroupsScreen() {
       load();
     }, [load])
   );
+
+  useEffect(() => {
+    if (params.action === 'create') {
+      openCreate();
+      router.setParams({ action: undefined });
+    } else if (params.action === 'join') {
+      setJoinModalVisible(true);
+      router.setParams({ action: undefined });
+    }
+  }, [params.action]);
 
   const openCreate = () => {
     setCreateStep('form');
@@ -216,7 +230,7 @@ export default function GroupsScreen() {
       if (!group) {
         Alert.alert(
           '알림',
-          '유효하지 않은 초대 코드예요.\n\n- 코드를 정확히 입력했는지 확인해 주세요.\n- 방금 만든 코드라면, 모임 생성이 서버에 성공했는지(에러가 없었는지) 확인해 주세요.'
+          '유효하지 않은 초대 코드예요.\n\n· 공백 없이, 대문자로 입력해보세요.\n· 코드를 정확히 입력했는지 확인해 주세요.\n· 방금 만든 코드라면, 모임 생성이 서버에 성공했는지 확인해 주세요.'
         );
         return;
       }
@@ -244,10 +258,27 @@ export default function GroupsScreen() {
     }
   };
 
-  if (loading) {
+  if (loading && !refreshing) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.bg }]}>
-        <Text style={[styles.loadingText, { fontSize: s(15) }]}>불러오는 중이에요 ✨</Text>
+        <Text style={[styles.loadingText, { fontSize: s(15), color: theme.textSecondary }]}>불러오는 중이에요 ✨</Text>
+      </View>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.bg, padding: 24 }]}>
+        <Text style={[styles.loadingText, { fontSize: s(15), color: theme.textSecondary, textAlign: 'center' }]}>
+          일시적인 문제예요. 잠시 후 다시 시도해주세요.
+        </Text>
+        <TouchableOpacity
+          style={[styles.retryButton, { backgroundColor: theme.primary }]}
+          onPress={() => { setLoading(true); load(); }}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.retryButtonText, { fontSize: s(16) }]}>다시 시도</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -276,9 +307,11 @@ export default function GroupsScreen() {
         {groups.length === 0 ? (
           <EmptyState
             title="아직 모임이 없어요 🌱"
-            subtitle="새 모임을 만들거나 초대 링크로 참여해 보세요!"
+            subtitle="새 모임을 만들거나, 친구에게 받은 초대 코드로 참여해 보세요!"
             buttonLabel="새 읽기 모임 만들기"
             onPress={openCreate}
+            secondaryButtonLabel="초대 코드로 참여"
+            secondaryOnPress={() => setJoinModalVisible(true)}
           />
         ) : (
           groups.map((group) => (
@@ -344,6 +377,21 @@ export default function GroupsScreen() {
                 placeholderTextColor={theme.textSecondary}
                 keyboardType="number-pad"
               />
+              {(() => {
+                const days = parseInt(durationDays, 10);
+                if (!isNaN(days) && days >= 1 && days <= 365) {
+                  const start = new Date();
+                  const end = new Date();
+                  end.setDate(end.getDate() + days - 1);
+                  const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
+                  return (
+                    <Text style={[styles.hint, { color: theme.textSecondary, fontSize: s(13) }]}>
+                      오늘부터 1일차 · 예: {fmt(start)} ~ {fmt(end)}
+                    </Text>
+                  );
+                }
+                return null;
+              })()}
               <Text style={[styles.label, { fontSize: s(13) }]}>모임 설명 / 규칙 (선택)</Text>
               <TextInput
                 style={[styles.input, styles.descriptionInput, { backgroundColor: theme.card, color: theme.text, fontSize: s(16) }]}
@@ -484,6 +532,8 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { fontSize: 15, color: lightTheme.textSecondary },
+  retryButton: { marginTop: 20, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 20 },
+  retryButtonText: { fontSize: 16, fontWeight: '600', color: '#FFF' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 },
   sectionTitle: { fontSize: 20, fontWeight: '700', color: lightTheme.text },
   headerButtons: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -514,6 +564,7 @@ const styles = StyleSheet.create({
   form: { flex: 1 },
   formContent: { padding: 20, paddingBottom: 40 },
   label: { fontSize: 13, fontWeight: '600', color: lightTheme.textSecondary, marginBottom: 6 },
+  hint: { marginBottom: 12, marginTop: -4 },
   input: {
     borderRadius: 16,
     paddingHorizontal: 16,

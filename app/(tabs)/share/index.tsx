@@ -12,7 +12,7 @@ import {
   RefreshControl,
   Alert,
 } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { lightTheme } from '@/constants/theme';
@@ -61,6 +61,9 @@ export default function ShareListScreen() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [likeCountByPost, setLikeCountByPost] = useState<Record<string, number>>({});
   const [commentCountByPost, setCommentCountByPost] = useState<Record<string, number>>({});
+  const [filterGroupId, setFilterGroupId] = useState<string | null>(null);
+  const [filterGroups, setFilterGroups] = useState<{ id: string; title: string }[]>([]);
+  const params = useLocalSearchParams<{ groupId?: string }>();
 
   const loadPosts = useCallback(async () => {
     const [list, counts] = await Promise.all([getSharePosts(), getShareCounts()]);
@@ -74,6 +77,9 @@ export default function ShareListScreen() {
       const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
       const uid = user?.id ?? (await getOrCreateLocalUserId());
       setCurrentUserId(uid);
+      const [cached, local] = await Promise.all([getCachedGroups(), getLocalGroups()]);
+      const groups = local.length > 0 ? local : cached;
+      setFilterGroups(groups.map((g) => ({ id: g.id, title: g.title })));
       await loadPosts();
     } catch (e) {
       console.error(e);
@@ -96,6 +102,16 @@ export default function ShareListScreen() {
       loadPosts();
     }, [loadPosts])
   );
+
+  useEffect(() => {
+    if (params.groupId) {
+      setFilterGroupId(params.groupId);
+    }
+  }, [params.groupId]);
+
+  const filteredPosts = filterGroupId
+    ? posts.filter((p) => p.groupId === filterGroupId)
+    : posts;
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -171,6 +187,25 @@ export default function ShareListScreen() {
         <Text style={[styles.title, { fontSize: s(20) }]}>나눔 💬</Text>
         <Text style={[styles.subtitle, { fontSize: s(13) }]}>읽은 말씀을 나눠보세요</Text>
       </View>
+      <View style={styles.filterRow}>
+        <TouchableOpacity
+          style={[styles.filterChip, { backgroundColor: !filterGroupId ? theme.primary : theme.bgSecondary }]}
+          onPress={() => setFilterGroupId(null)}
+        >
+          <Text style={[styles.filterChipText, { fontSize: s(13), color: !filterGroupId ? '#FFF' : theme.textSecondary }]}>전체</Text>
+        </TouchableOpacity>
+        {filterGroups.map((g) => (
+          <TouchableOpacity
+            key={g.id}
+            style={[styles.filterChip, { backgroundColor: filterGroupId === g.id ? theme.primary : theme.bgSecondary }]}
+            onPress={() => setFilterGroupId(filterGroupId === g.id ? null : g.id)}
+          >
+            <Text style={[styles.filterChipText, { fontSize: s(13), color: filterGroupId === g.id ? '#FFF' : theme.textSecondary }]} numberOfLines={1}>
+              {g.title}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -178,13 +213,15 @@ export default function ShareListScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />
         }
       >
-        {posts.length === 0 ? (
+        {filteredPosts.length === 0 ? (
           <View style={styles.empty}>
-            <Text style={[styles.emptyText, { fontSize: s(15) }]}>아직 나눔 글이 없어요</Text>
+            <Text style={[styles.emptyText, { fontSize: s(15) }]}>
+              {filterGroupId ? '이 모임 나눔 글이 없어요' : '아직 나눔 글이 없어요'}
+            </Text>
             <Text style={[styles.emptySub, { fontSize: s(13) }]}>첫 번째로 글을 남겨보세요!</Text>
           </View>
         ) : (
-          posts.map((post) => {
+          filteredPosts.map((post) => {
             const likeCount = post.id === detailPost?.id ? detailLikes.length : (likeCountByPost[post.id] ?? 0);
             const commentCount = post.id === detailPost?.id ? detailComments.length : (commentCountByPost[post.id] ?? 0);
             return (
@@ -333,6 +370,13 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
   title: { fontWeight: '700', color: lightTheme.text },
   subtitle: { color: lightTheme.textSecondary, marginTop: 4 },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingBottom: 12 },
+  filterChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+  },
+  filterChipText: { fontWeight: '600' },
   scroll: { flex: 1 },
   scrollContent: { padding: 20, paddingBottom: 100 },
   empty: { alignItems: 'center', paddingVertical: 48 },

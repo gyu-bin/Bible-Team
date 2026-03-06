@@ -55,6 +55,14 @@ function formatCertTime(iso: string): string {
   return `${h}:${min}`;
 }
 
+function formatCertTimeLabel(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  const isToday = d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+  const time = formatCertTime(iso);
+  return isToday ? `오늘 ${time} 인증` : `${formatCertDate(iso)} ${time}`;
+}
+
 export default function GroupFeedScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -362,6 +370,9 @@ export default function GroupFeedScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />
         }
       >
+        <Text style={[styles.feedHint, { color: theme.textSecondary, fontSize: s(14) }]}>
+          오늘 읽은 분량을 사진으로 인증해보세요.
+        </Text>
         {certifications.length === 0 ? (
           <View style={styles.empty}>
             <Text style={[styles.emptyEmoji, { fontSize: s(48) }]}>📷</Text>
@@ -393,6 +404,9 @@ export default function GroupFeedScreen() {
                 />
                 <Text style={[styles.gridNickname, { fontSize: s(13), color: theme.text }]} numberOfLines={1}>
                   {cert.userNickname}
+                </Text>
+                <Text style={[styles.gridTimeLabel, { fontSize: s(11), color: theme.textSecondary }]} numberOfLines={1}>
+                  {formatCertTimeLabel(cert.createdAt)}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -472,6 +486,7 @@ const styles = StyleSheet.create({
   addBtn: { minWidth: 44, alignItems: 'flex-end' },
   scroll: { flex: 1 },
   scrollContent: { padding: 20, paddingTop: 16 },
+  feedHint: { marginBottom: 16 },
   empty: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -493,6 +508,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#eee',
   },
   gridNickname: { marginTop: 6, fontWeight: '600' },
+  gridTimeLabel: { marginTop: 2 },
   stampModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',

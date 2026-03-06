@@ -106,6 +106,11 @@ export default function ShareCreateScreen() {
           <Ionicons name="chevron-down" size={s(20)} color={theme.textSecondary} />
         </TouchableOpacity>
       </View>
+      <View style={styles.createHintWrap}>
+        <Text style={[styles.createHint, { fontSize: s(13), color: theme.textSecondary }]}>
+          {groupTitle ? `이 글이 [${groupTitle}] 모임 글로 표시돼요.` : '모임을 선택하면 나눔 글에 모임명이 표시돼요.'}
+        </Text>
+      </View>
 
       <ScrollView
         style={styles.inputScroll}
@@ -207,6 +212,8 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   groupValue: { color: lightTheme.text, marginRight: 6 },
+  createHintWrap: { paddingHorizontal: 20, paddingBottom: 8 },
+  createHint: {},
   inputScroll: { flex: 1 },
   inputScrollContent: { flexGrow: 1, paddingBottom: 24 },
   input: {

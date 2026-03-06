@@ -108,7 +108,7 @@ export default function SettingsScreen() {
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView style={[styles.container, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
         <Text style={[styles.sectionTitle, { fontSize: s(13), color: theme.textSecondary }]}>계정</Text>
-        <View style={[styles.card, { backgroundColor: theme.card }]}>
+        <View style={[styles.card, { backgroundColor: theme.card }]}>   
           <TouchableOpacity style={[styles.row, { borderBottomColor: theme.border }]} onPress={startEditNickname} activeOpacity={0.7}>
             <Text style={[styles.rowLabel, { fontSize: s(15), color: theme.textSecondary }]}>닉네임</Text>
             <View style={styles.nicknameValueRow}>
@@ -149,13 +149,6 @@ export default function SettingsScreen() {
               {email ? email : '바이블 크루와 함께 읽는 중 ✨'}
             </Text>
           </View>
-          {/* {email ? (
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.8}>
-            <Text style={[styles.logoutButtonText, { fontSize: s(15) }]}>로그아웃</Text>
-          </TouchableOpacity>
-          ) : (
-            <Text style={[styles.anonHint, { fontSize: s(13), color: theme.textSecondary }]}>로그인 없이도 모임 만들기·참여·읽기 기록이 가능해요.</Text>
-          )} */}
         </View>
 
         <Text style={[styles.sectionTitle, { marginTop: 24, fontSize: s(13), color: theme.textSecondary }]}>앱</Text>
@@ -233,6 +226,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: lightTheme.border,
   },
+  cardHint: { paddingHorizontal: 4, paddingBottom: 8 },
   rowLast: { borderBottomWidth: 0 },
   rowLabel: { fontSize: 15, color: lightTheme.textSecondary },
   rowValue: { fontSize: 15, fontWeight: '500', maxWidth: '55%' },

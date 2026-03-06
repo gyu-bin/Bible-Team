@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getMyGroups } from '@/services/groupService';
@@ -9,6 +9,7 @@ import { getCachedGroups, getCachedLoggedToday, setCachedGroups, setCachedLogged
 import { getTodayChapters } from '@/constants/bibleBooks';
 import { TodayReadingCard, type MemberProgressItem } from '@/components/TodayReadingCard';
 import { EmptyState } from '@/components/EmptyState';
+import { OnboardingModal, hasSeenOnboarding } from '@/components/OnboardingModal';
 import { lightTheme } from '@/constants/theme';
 import { useFontScale } from '@/contexts/FontSizeContext';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -39,8 +40,12 @@ export default function HomeScreen() {
   const [memberProgress, setMemberProgress] = useState<Record<string, MemberProgressItem[]>>({});
   const [memberNicknames, setMemberNicknames] = useState<Record<string, string>>({});
   const [myNickname, setMyNickname] = useState<string>('');
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [completeToast, setCompleteToast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setLoadError(false);
     try {
       const [user, nickname] = await Promise.all([
         ensureAnonymousUser().catch(() => null) ?? getCurrentUser().catch(() => null),
@@ -98,6 +103,7 @@ export default function HomeScreen() {
       setMemberNicknames(nickMap);
     } catch (e) {
       console.error(e);
+      setLoadError(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -118,6 +124,14 @@ export default function HomeScreen() {
       load();
     }, [load])
   );
+
+  useEffect(() => {
+    if (!loading && groups.length === 0) {
+      hasSeenOnboarding().then((done) => {
+        if (!done) setShowOnboarding(true);
+      });
+    }
+  }, [loading, groups.length]);
 
   const handleUndoComplete = async (group: ReadingGroupRow) => {
     setLoggedToday((prev) => ({ ...prev, [group.id]: false }));
@@ -150,6 +164,8 @@ export default function HomeScreen() {
             ),
           }));
         }
+        setCompleteToast(group.title);
+        setTimeout(() => setCompleteToast(null), 2200);
         setCompletingId(null);
         return;
       }
@@ -172,6 +188,8 @@ export default function HomeScreen() {
             ),
           }));
         }
+        setCompleteToast(group.title);
+        setTimeout(() => setCompleteToast(null), 2200);
       }
     } catch (e) {
       console.error(e);
@@ -180,7 +198,7 @@ export default function HomeScreen() {
     }
   };
 
-  if (loading) {
+  if (loading && !refreshing) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.bg }]}>
         <Text style={[styles.loadingText, { fontSize: s(15), color: theme.textSecondary }]}>불러오는 중이에요 ✨</Text>
@@ -188,55 +206,88 @@ export default function HomeScreen() {
     );
   }
 
+  if (loadError) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.bg, padding: 24 }]}>
+        <Text style={[styles.loadingText, { fontSize: s(15), color: theme.textSecondary, textAlign: 'center' }]}>
+          일시적인 문제예요. 잠시 후 다시 시도해주세요.
+        </Text>
+        <TouchableOpacity
+          style={[styles.retryButton, { backgroundColor: theme.primary }]}
+          onPress={() => { setLoading(true); load(); }}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.retryButtonText, { fontSize: s(16) }]}>다시 시도</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   if (groups.length === 0) {
     return (
       <View style={[styles.container, { backgroundColor: theme.bg }]}>
+        <OnboardingModal
+          visible={showOnboarding}
+          onDismiss={() => setShowOnboarding(false)}
+          onCreateGroup={() => router.push({ pathname: '/(tabs)/groups', params: { action: 'create' } })}
+          onJoinByCode={() => router.push({ pathname: '/(tabs)/groups', params: { action: 'join' } })}
+        />
         <EmptyState
           title="아직 참여 중인 모임이 없어요 🌱"
-          subtitle="모임을 만들거나 친구 초대를 받아보세요!"
-          buttonLabel="모임 보기"
-          onPress={() => router.push('/(tabs)/groups')}
+          subtitle="새 모임을 만들거나, 친구에게 받은 초대 코드로 참여해 보세요!"
+          buttonLabel="새 모임 만들기"
+          onPress={() => router.push({ pathname: '/(tabs)/groups', params: { action: 'create' } })}
+          secondaryButtonLabel="초대 코드로 참여"
+          secondaryOnPress={() => router.push({ pathname: '/(tabs)/groups', params: { action: 'join' } })}
         />
       </View>
     );
   }
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.bg }]}
-      contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />
-      }
-    >
-      <Text style={[styles.sectionTitle, { fontSize: s(13), marginBottom: s(12), color: theme.textSecondary }]}>오늘의 읽기 📖</Text>
-      {groups.map((group) => {
-        const dayIndex = getDayIndex(group.created_at);
-        const isDone = dayIndex >= group.duration_days;
-        return (
-          <TodayReadingCard
-            key={group.id}
-            group={group}
-            dayIndex={isDone ? group.duration_days - 1 : dayIndex}
-            totalDays={group.duration_days}
-            isLoggedToday={loggedToday[group.id] ?? false}
-            onComplete={() => handleComplete(group)}
-            onUndoComplete={() => handleUndoComplete(group)}
-            completing={completingId === group.id}
-            onPress={() => router.push(`/group/${group.id}`)}
-            memberProgress={memberProgress[group.id]}
-            memberNicknames={memberNicknames}
-            currentUserId={userId ?? undefined}
-            currentUserNickname={myNickname || undefined}
-          />
-        );
-      })}
-    </ScrollView>
+    <View style={styles.container}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />
+        }
+      >
+        <Text style={[styles.sectionTitle, { fontSize: s(13), marginBottom: s(12), color: theme.textSecondary }]}>오늘의 읽기 📖</Text>
+        {groups.map((group) => {
+          const dayIndex = getDayIndex(group.created_at);
+          const isDone = dayIndex >= group.duration_days;
+          return (
+            <TodayReadingCard
+              key={group.id}
+              group={group}
+              dayIndex={isDone ? group.duration_days - 1 : dayIndex}
+              totalDays={group.duration_days}
+              isLoggedToday={loggedToday[group.id] ?? false}
+              onComplete={() => handleComplete(group)}
+              onUndoComplete={() => handleUndoComplete(group)}
+              completing={completingId === group.id}
+              onPress={() => router.push(`/group/${group.id}`)}
+              memberProgress={memberProgress[group.id]}
+              memberNicknames={memberNicknames}
+              currentUserId={userId ?? undefined}
+              currentUserNickname={myNickname || undefined}
+            />
+          );
+        })}
+      </ScrollView>
+      {completeToast ? (
+        <View style={[styles.toast, { backgroundColor: theme.primary }]} pointerEvents="none">
+          <Text style={styles.toastText}>오늘 읽기 완료 ✨ · {completeToast}</Text>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  scroll: { flex: 1 },
   content: { padding: 20, paddingBottom: 40 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { fontSize: 15, color: lightTheme.textSecondary },
@@ -247,4 +298,26 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     letterSpacing: 0.5,
   },
+  toast: {
+    position: 'absolute',
+    bottom: 32,
+    left: 20,
+    right: 20,
+    paddingVertical: 14,
+    borderRadius: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  toastText: { fontSize: 15, fontWeight: '600', color: '#FFF' },
+  retryButton: {
+    marginTop: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 20,
+  },
+  retryButtonText: { fontSize: 16, fontWeight: '600', color: '#FFF' },
 });
