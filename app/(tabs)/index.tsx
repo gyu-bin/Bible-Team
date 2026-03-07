@@ -5,7 +5,7 @@ import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getMyGroups } from '@/services/groupService';
 import { hasLoggedToday, logChapters, deleteTodayLogs, getGroupMemberProgress, getMyLoggedDates, getConsecutiveDays, getThisWeekCompletedCount } from '@/services/readingLogService';
 import { getNicknamesByUserIds } from '@/services/profileService';
-import { sendReminderPush } from '@/services/reminderPushService';
+// import { sendReminderPush } from '@/services/reminderPushService'; // 리마인드(미완료 푸시) 기능
 import { getCachedGroups, getCachedLoggedToday, setCachedGroups, setCachedLoggedToday, setCachedLoggedTodayGroup, getLocalGroups, isLocalUserId, getOrCreateLocalUserId, getNickname } from '@/lib/cache';
 import { getTodayChapters } from '@/constants/bibleBooks';
 import { TodayReadingCard, type MemberProgressItem } from '@/components/TodayReadingCard';
@@ -349,6 +349,7 @@ export default function HomeScreen() {
               completing={completingId === group.id}
               onPress={() => router.push(`/group/${group.id}`)}
               onCollapse={() => setCollapsedGroupIds((prev) => ({ ...prev, [group.id]: true }))}
+              {/* 리마인드(미완료 멤버에게 푸시) 기능 - Edge Function 배포 후 주석 해제
               onSendReminder={
                 userId && !group.id.startsWith('local_')
                   ? (toUserId) => {
@@ -371,6 +372,7 @@ export default function HomeScreen() {
                     }
                   : undefined
               }
+              */}
               memberProgress={memberProgress[group.id]}
               memberNicknames={memberNicknames}
               currentUserId={userId ?? undefined}
