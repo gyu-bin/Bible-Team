@@ -132,7 +132,7 @@ export default function GroupDetailScreen() {
     if (!group || !currentUserId) return;
     Alert.alert(
       '모임 탈퇴',
-      '이 모임에서 탈퇴할까요?',
+      '이 모임에서 탈퇴할까요? 탈퇴해도 지금까지의 참여 기록은 유지돼요.',
       [
         { text: '취소', style: 'cancel' },
         {
@@ -167,7 +167,7 @@ export default function GroupDetailScreen() {
     if (!group || !currentUserId || !isLeader) return;
     Alert.alert(
       '모임 삭제',
-      '모임을 삭제하면 복구할 수 없어요. 정말 삭제할까요?',
+      '모임을 삭제하면 복구할 수 없어요. 인증 피드·나눔 연결도 함께 사라져요. 정말 삭제할까요?',
       [
         { text: '취소', style: 'cancel' },
         {
@@ -286,15 +286,22 @@ export default function GroupDetailScreen() {
         ) : null}
         <View style={[styles.memberSection, { borderTopColor: theme.border }]}>
           <Text style={[styles.memberSectionTitle, { fontSize: s(13), color: theme.textSecondary }]}>참여 멤버 ({members.length}명)</Text>
-          {members.map((m, i) => (
-            <View key={m.user_id} style={styles.memberRow}>
-              <Text style={[styles.memberLabel, { fontSize: s(15), color: theme.text }]}>
-                {currentUserId === m.user_id
-                  ? (myNickname || memberNicknames[m.user_id] || '나')
-                  : (memberNicknames[m.user_id] || `멤버 ${i + 1}`)}
-              </Text>
-            </View>
-          ))}
+          {members.map((m, i) => {
+            const isLeaderMember = m.user_id === group.leader_id;
+            const displayName = currentUserId === m.user_id
+              ? (myNickname || memberNicknames[m.user_id] || '나')
+              : (memberNicknames[m.user_id] || `멤버 ${i + 1}`);
+            return (
+              <View key={m.user_id} style={[styles.memberRow, { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }]}>
+                <Text style={[styles.memberLabel, { fontSize: s(15), color: theme.text }]}>{displayName}</Text>
+                {isLeaderMember ? (
+                  <View style={[styles.leaderBadge, { backgroundColor: theme.primary, marginLeft: 8 }]}>
+                    <Text style={[styles.leaderBadgeText, { fontSize: s(11), color: '#FFF' }]}>모임장</Text>
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
         </View>
       </View>
 
@@ -426,6 +433,8 @@ const styles = StyleSheet.create({
   memberSectionTitle: { fontSize: 13, fontWeight: '600', marginBottom: 10 },
   memberRow: { paddingVertical: 6 },
   memberLabel: { fontSize: 15 },
+  leaderBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  leaderBadgeText: { fontWeight: '600' },
   button: {
     paddingVertical: 16,
     borderRadius: 20,

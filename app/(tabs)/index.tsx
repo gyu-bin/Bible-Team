@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Alert } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getMyGroups } from '@/services/groupService';
-import { hasLoggedToday, logChapters, getGroupMemberProgress } from '@/services/readingLogService';
+import { hasLoggedToday, logChapters, deleteTodayLogs, getGroupMemberProgress, getMyLoggedDates, getConsecutiveDays, getThisWeekCompletedCount } from '@/services/readingLogService';
 import { getNicknamesByUserIds } from '@/services/profileService';
+import { sendReminderPush } from '@/services/reminderPushService';
 import { getCachedGroups, getCachedLoggedToday, setCachedGroups, setCachedLoggedToday, setCachedLoggedTodayGroup, getLocalGroups, isLocalUserId, getOrCreateLocalUserId, getNickname } from '@/lib/cache';
 import { getTodayChapters } from '@/constants/bibleBooks';
 import { TodayReadingCard, type MemberProgressItem } from '@/components/TodayReadingCard';
@@ -43,6 +44,10 @@ export default function HomeScreen() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [completeToast, setCompleteToast] = useState<string | null>(null);
+  const [completedCollapsed, setCompletedCollapsed] = useState(true);
+  const [consecutiveDays, setConsecutiveDays] = useState(0);
+  const [thisWeekCount, setThisWeekCount] = useState(0);
+  const [collapsedGroupIds, setCollapsedGroupIds] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     setLoadError(false);
@@ -101,6 +106,10 @@ export default function HomeScreen() {
       const allUserIds = Array.from(new Set(Object.values(progressMap).flat().map((m) => m.user_id)));
       const nickMap = await getNicknamesByUserIds(allUserIds).catch(() => ({}));
       setMemberNicknames(nickMap);
+
+      const myDates = await getMyLoggedDates(user.id).catch(() => []);
+      setConsecutiveDays(getConsecutiveDays(myDates));
+      setThisWeekCount(getThisWeekCompletedCount(myDates));
     } catch (e) {
       console.error(e);
       setLoadError(true);
@@ -134,9 +143,17 @@ export default function HomeScreen() {
   }, [loading, groups.length]);
 
   const handleUndoComplete = async (group: ReadingGroupRow) => {
+    const uid = userId ?? (await ensureAnonymousUser().catch(() => null))?.id ?? (await getOrCreateLocalUserId().catch(() => null));
+    const isLocal = !uid || isLocalUserId(uid) || group.id.startsWith('local_');
+    if (!isLocal && uid) {
+      try {
+        await deleteTodayLogs(group.id, uid);
+      } catch (e) {
+        console.error(e);
+      }
+    }
     setLoggedToday((prev) => ({ ...prev, [group.id]: false }));
     await setCachedLoggedTodayGroup(group.id, false);
-    const uid = userId ?? await getOrCreateLocalUserId().catch(() => null);
     if (uid && memberProgress[group.id]) {
       setMemberProgress((prev) => ({
         ...prev,
@@ -144,6 +161,11 @@ export default function HomeScreen() {
           m.user_id === uid ? { ...m, todayCompleted: false } : m
         ),
       }));
+    }
+    if (uid && !isLocalUserId(uid)) {
+      const myDates = await getMyLoggedDates(uid).catch(() => []);
+      setConsecutiveDays(getConsecutiveDays(myDates));
+      setThisWeekCount(getThisWeekCompletedCount(myDates));
     }
   };
 
@@ -187,6 +209,11 @@ export default function HomeScreen() {
               m.user_id === uid ? { ...m, todayCompleted: true } : m
             ),
           }));
+        }
+        if (uid && !isLocalUserId(uid)) {
+          const myDates = await getMyLoggedDates(uid).catch(() => []);
+          setConsecutiveDays(getConsecutiveDays(myDates));
+          setThisWeekCount(getThisWeekCompletedCount(myDates));
         }
         setCompleteToast(group.title);
         setTimeout(() => setCompleteToast(null), 2200);
@@ -244,6 +271,11 @@ export default function HomeScreen() {
     );
   }
 
+  const inProgressGroups = groups.filter((g) => getDayIndex(g.created_at) < g.duration_days);
+  const completedGroups = groups.filter((g) => getDayIndex(g.created_at) >= g.duration_days);
+  const showCompleted = !completedCollapsed;
+  const listToShow = [...inProgressGroups, ...(showCompleted ? completedGroups : [])];
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -253,21 +285,92 @@ export default function HomeScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />
         }
       >
-        <Text style={[styles.sectionTitle, { fontSize: s(13), marginBottom: s(12), color: theme.textSecondary }]}>오늘의 읽기 📖</Text>
-        {groups.map((group) => {
+        <Text style={[styles.sectionTitle, { fontSize: s(13), marginBottom: s(6), color: theme.textSecondary }]}>오늘의 읽기 📖</Text>
+        {(consecutiveDays > 0 || thisWeekCount > 0) && userId && (
+          <View style={[styles.statsRow, { backgroundColor: theme.bgSecondary, marginBottom: s(12) }]}>
+            <View>
+              <Text style={[styles.statsText, { fontSize: s(13) }]}>
+                {consecutiveDays > 0 && (
+                  <Text style={{ color: theme.primary, fontWeight: '600' }}>🔥 매일 읽기 연속 {consecutiveDays}일</Text>
+                )}
+                {consecutiveDays > 0 && thisWeekCount > 0 && (
+                  <Text style={{ color: theme.textSecondary }}> · </Text>
+                )}
+                {thisWeekCount > 0 && (
+                  <Text style={{ color: theme.textSecondary, fontWeight: '600' }}>이번 주 {thisWeekCount}일 완료</Text>
+                )}
+              </Text>
+              <Text style={[styles.statsHint, { fontSize: s(11), color: theme.textSecondary, marginTop: 2 }]}>
+                (참여 중인 모임 중 매일 최소 1회 읽기 완료한 날 기준)
+              </Text>
+            </View>
+          </View>
+        )}
+        <Text style={[styles.refreshHint, { fontSize: s(11), color: theme.textSecondary, marginBottom: s(12) }]}>
+          ↓ 당겨서 새로고침하면 함께 읽는 사람 정보가 갱신돼요
+        </Text>
+        {listToShow.map((group) => {
           const dayIndex = getDayIndex(group.created_at);
           const isDone = dayIndex >= group.duration_days;
+          const displayDayIndex = isDone ? group.duration_days - 1 : dayIndex;
+          const collapsed = collapsedGroupIds[group.id];
+          if (collapsed) {
+            return (
+              <TouchableOpacity
+                key={group.id}
+                style={[styles.collapsedCardRow, { backgroundColor: theme.card }]}
+                onPress={() => setCollapsedGroupIds((prev) => ({ ...prev, [group.id]: false }))}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.collapsedCardTitle, { color: theme.text, fontSize: s(15) }]} numberOfLines={1}>
+                  {group.title}
+                </Text>
+                <View style={styles.collapsedCardRight}>
+                  {loggedToday[group.id] ? (
+                    <Text style={[styles.collapsedCardDone, { color: theme.doneText, fontSize: s(12), marginRight: 8 }]}>오늘 완료</Text>
+                  ) : null}
+                  <Text style={[styles.collapsedCardDay, { color: theme.textSecondary, fontSize: s(13) }]}>
+                    {displayDayIndex + 1}일차 / {group.duration_days}일
+                  </Text>
+                  <Text style={[styles.collapsedCardChevron, { color: theme.textSecondary, fontSize: s(16) }]}>›</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          }
           return (
             <TodayReadingCard
               key={group.id}
               group={group}
-              dayIndex={isDone ? group.duration_days - 1 : dayIndex}
+              dayIndex={displayDayIndex}
               totalDays={group.duration_days}
               isLoggedToday={loggedToday[group.id] ?? false}
               onComplete={() => handleComplete(group)}
               onUndoComplete={() => handleUndoComplete(group)}
               completing={completingId === group.id}
               onPress={() => router.push(`/group/${group.id}`)}
+              onCollapse={() => setCollapsedGroupIds((prev) => ({ ...prev, [group.id]: true }))}
+              onSendReminder={
+                userId && !group.id.startsWith('local_')
+                  ? (toUserId) => {
+                      const name = memberNicknames[toUserId] ?? '해당 멤버';
+                      Alert.alert('리마인드 보내기', `${name}님에게 읽기 리마인드 알림을 보낼까요?`, [
+                        { text: '취소', style: 'cancel' },
+                        {
+                          text: '보내기',
+                          onPress: async () => {
+                            const res = await sendReminderPush(toUserId, group.id, myNickname || '모임원');
+                            if (res.ok) Alert.alert('알림', '리마인드를 보냈어요.');
+                            else if (res.error === 'no_push_token') Alert.alert('알 수 없음', '상대방이 알림을 허용하지 않았을 수 있어요.');
+                            else if (res.error === 'already_sent_today') Alert.alert('알림', '오늘 이미 이 멤버에게 보냈어요.');
+                            else if (res.error === 'function_unavailable') Alert.alert('알 수 없음', '리마인드 기능을 사용하려면 Edge Function 배포와 DB 마이그레이션(schema-push-reminder.sql)이 필요해요.');
+                            else if (res.error === 'unauthorized') Alert.alert('알 수 없음', '로그인 후 다시 시도해주세요.');
+                            else Alert.alert('알 수 없음', res.error);
+                          },
+                        },
+                      ]);
+                    }
+                  : undefined
+              }
               memberProgress={memberProgress[group.id]}
               memberNicknames={memberNicknames}
               currentUserId={userId ?? undefined}
@@ -275,6 +378,28 @@ export default function HomeScreen() {
             />
           );
         })}
+        {completedGroups.length > 0 && completedCollapsed && (
+          <TouchableOpacity
+            style={[styles.collapsedRow, { backgroundColor: theme.card }]}
+            onPress={() => setCompletedCollapsed(false)}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.collapsedRowText, { fontSize: s(14), color: theme.textSecondary }]}>
+              완료된 모임 {completedGroups.length}개 (탭해서 펼치기)
+            </Text>
+            <Text style={[styles.collapsedRowChevron, { fontSize: s(18), color: theme.textSecondary }]}>›</Text>
+          </TouchableOpacity>
+        )}
+        {completedGroups.length > 0 && !completedCollapsed && (
+          <TouchableOpacity
+            style={[styles.collapsedRow, { backgroundColor: theme.bgSecondary }]}
+            onPress={() => setCompletedCollapsed(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.collapsedRowText, { fontSize: s(14), color: theme.textSecondary }]}>완료된 모임 접기</Text>
+            <Text style={[styles.collapsedRowChevron, { fontSize: s(18), color: theme.textSecondary }]}>∧</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
       {completeToast ? (
         <View style={[styles.toast, { backgroundColor: theme.primary }]} pointerEvents="none">
@@ -295,9 +420,43 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: lightTheme.textSecondary,
-    marginBottom: 12,
     letterSpacing: 0.5,
   },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+  },
+  statsText: { fontWeight: '600' },
+  statsHint: {},
+  refreshHint: {},
+  collapsedCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    marginBottom: 12,
+  },
+  collapsedCardTitle: { fontWeight: '600', flex: 1, marginRight: 8 },
+  collapsedCardRight: { flexDirection: 'row', alignItems: 'center' },
+  collapsedCardDay: {},
+  collapsedCardDone: { fontWeight: '600' },
+  collapsedCardChevron: { fontWeight: '300', marginLeft: 4 },
+  collapsedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    marginTop: 8,
+  },
+  collapsedRowText: {},
+  collapsedRowChevron: { fontWeight: '300' },
   toast: {
     position: 'absolute',
     bottom: 32,

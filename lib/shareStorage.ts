@@ -4,11 +4,13 @@ import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import {
   getSharePostsFromServer,
   addSharePostToServer,
+  updateSharePostFromServer,
   deleteSharePostFromServer,
   getShareLikesFromServer,
   toggleShareLikeOnServer,
   getShareCommentsFromServer,
   addShareCommentToServer,
+  deleteShareCommentFromServer,
   getAllShareLikeCountsFromServer,
   getAllShareCommentCountsFromServer,
 } from '@/services/shareService';
@@ -79,18 +81,23 @@ async function setStoredComments(comments: ShareComment[]): Promise<void> {
   }
 }
 
-/** 나눔 글 목록 (최신순). 로그인 시 서버, 아니면 로컬 */
-export async function getSharePosts(): Promise<SharePost[]> {
+const SHARE_PAGE_SIZE = 20;
+
+/** 나눔 글 목록 (최신순). limit/offset 있으면 페이지네이션 */
+export async function getSharePosts(options?: { limit?: number; offset?: number }): Promise<SharePost[]> {
+  const limit = options?.limit ?? 1000;
+  const offset = options?.offset ?? 0;
   const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
   if (user?.id) {
     try {
-      return await getSharePostsFromServer();
+      return await getSharePostsFromServer({ limit, offset });
     } catch (e) {
       console.warn('getSharePostsFromServer failed', e);
     }
   }
-  const posts = await getStoredPosts();
-  return [...posts].sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
+  const all = await getStoredPosts();
+  const sorted = [...all].sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
+  return sorted.slice(offset, offset + limit);
 }
 
 /** 전체 좋아요/댓글 수 맵 (목록용). 로그인 시 서버, 아니면 로컬 */
@@ -227,6 +234,53 @@ export async function addShareComment(postId: string, content: string): Promise<
   const comments = await getStoredComments();
   await setStoredComments([...comments, comment]);
   return comment;
+}
+
+/** 나눔 글 수정 (본인 글만). 로그인 시 서버, 아니면 로컬 */
+export async function updateSharePost(
+  postId: string,
+  content: string,
+  options?: { groupId?: string | null; groupTitle?: string | null }
+): Promise<SharePost> {
+  const authorNickname = (await getNickname()) || '익명';
+  const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
+  if (user?.id) {
+    try {
+      return await updateSharePostFromServer(postId, user.id, content, options);
+    } catch (e) {
+      console.warn('updateSharePostFromServer failed', e);
+      throw e;
+    }
+  }
+  const posts = await getStoredPosts();
+  const idx = posts.findIndex((p) => p.id === postId);
+  if (idx < 0) throw new Error('Post not found');
+  const updated: SharePost = {
+    ...posts[idx],
+    content: content.trim(),
+    groupId: options?.groupId ?? posts[idx].groupId ?? null,
+    groupTitle: options?.groupTitle ?? posts[idx].groupTitle ?? null,
+  };
+  posts[idx] = updated;
+  await setStoredPosts(posts);
+  return updated;
+}
+
+/** 댓글 삭제 (본인 댓글만). 로그인 시 서버, 아니면 로컬 */
+export async function deleteShareComment(commentId: string): Promise<void> {
+  const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
+  const authorId = user?.id ?? (await getOrCreateLocalUserId());
+  if (user?.id) {
+    try {
+      await deleteShareCommentFromServer(commentId, user.id);
+      return;
+    } catch (e) {
+      console.warn('deleteShareCommentFromServer failed', e);
+      throw e;
+    }
+  }
+  const comments = await getStoredComments();
+  await setStoredComments(comments.filter((c) => c.id !== commentId));
 }
 
 /** 나눔 글 삭제. 로그인 시 서버(본인 글만), 아니면 로컬 */

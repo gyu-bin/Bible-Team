@@ -43,11 +43,14 @@ function toShareComment(r: ShareCommentRow): ShareComment {
   };
 }
 
-export async function getSharePostsFromServer(): Promise<SharePost[]> {
+export async function getSharePostsFromServer(options?: { limit?: number; offset?: number }): Promise<SharePost[]> {
+  const limit = options?.limit ?? 1000;
+  const offset = options?.offset ?? 0;
   const { data, error } = await supabase
     .from('share_posts')
     .select('*')
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
 
   if (error) throw error;
   const rows = (data ?? []) as SharePostRow[];
@@ -76,11 +79,43 @@ export async function addSharePostToServer(
   return toSharePost(data as SharePostRow);
 }
 
+export async function updateSharePostFromServer(
+  postId: string,
+  authorId: string,
+  content: string,
+  options?: { groupId?: string | null; groupTitle?: string | null }
+): Promise<SharePost> {
+  const { data, error } = await supabase
+    .from('share_posts')
+    .update({
+      content: content.trim(),
+      group_id: options?.groupId ?? null,
+      group_title: options?.groupTitle ?? null,
+    })
+    .eq('id', postId)
+    .eq('author_id', authorId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return toSharePost(data as SharePostRow);
+}
+
 export async function deleteSharePostFromServer(postId: string, authorId: string): Promise<void> {
   const { error } = await supabase
     .from('share_posts')
     .delete()
     .eq('id', postId)
+    .eq('author_id', authorId);
+
+  if (error) throw error;
+}
+
+export async function deleteShareCommentFromServer(commentId: string, authorId: string): Promise<void> {
+  const { error } = await supabase
+    .from('share_comments')
+    .delete()
+    .eq('id', commentId)
     .eq('author_id', authorId);
 
   if (error) throw error;

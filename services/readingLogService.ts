@@ -80,6 +80,70 @@ export async function logTodayComplete(
   return data as ReadingLogRow;
 }
 
+/** 내가 읽기 완료한 날짜들 (YYYY-MM-DD, 최신순). 게임화/통계용 */
+export async function getMyLoggedDates(userId: string): Promise<string[]> {
+  try {
+    const { data, error } = await supabase
+      .from('reading_logs')
+      .select('logged_at')
+      .eq('user_id', userId);
+
+    if (error) return [];
+    const set = new Set<string>();
+    for (const row of (data ?? []) as { logged_at: string }[]) {
+      set.add(row.logged_at.slice(0, 10));
+    }
+    return Array.from(set).sort((a, b) => (b > a ? 1 : -1));
+  } catch {
+    return [];
+  }
+}
+
+/** 연속 읽기 일수 (오늘 포함, 오늘부터 과거로 이어지는 일수) */
+export function getConsecutiveDays(dates: string[]): number {
+  if (dates.length === 0) return 0;
+  const today = new Date().toISOString().slice(0, 10);
+  if (!dates.includes(today)) return 0;
+  let count = 0;
+  let d = new Date(today);
+  const sorted = [...dates].sort((a, b) => (b > a ? 1 : -1));
+  for (const dateStr of sorted) {
+    const expected = d.toISOString().slice(0, 10);
+    if (dateStr !== expected) break;
+    count++;
+    d.setDate(d.getDate() - 1);
+  }
+  return count;
+}
+
+/** 이번 주(일~토) 완료한 일수 */
+export function getThisWeekCompletedCount(dates: string[]): number {
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const sunday = new Date(now);
+  sunday.setDate(now.getDate() - dayOfWeek);
+  sunday.setHours(0, 0, 0, 0);
+  const nextSunday = new Date(sunday);
+  nextSunday.setDate(sunday.getDate() + 7);
+  return dates.filter((d) => {
+    const t = new Date(d + 'T12:00:00');
+    return t >= sunday && t < nextSunday;
+  }).length;
+}
+
+/** 오늘 이 모임에서 기록한 읽기 로그 전부 삭제 (완료 취소용) */
+export async function deleteTodayLogs(groupId: string, userId: string): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10);
+  const { error } = await supabase
+    .from('reading_logs')
+    .delete()
+    .eq('group_id', groupId)
+    .eq('user_id', userId)
+    .gte('logged_at', `${today}T00:00:00`)
+    .lt('logged_at', `${today}T23:59:59.999`);
+  if (error) throw error;
+}
+
 /** 오늘 분량 여러 장 기록 (예: 창세기 1,2,3장) */
 export async function logChapters(
   groupId: string,

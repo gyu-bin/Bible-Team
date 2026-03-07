@@ -6,9 +6,11 @@ import { useTheme } from '@/contexts/ThemeContext';
 interface GroupListItemProps {
   group: ReadingGroupRow;
   onPress: () => void;
+  /** 내가 모임장이면 true → 카드에 모임장 뱃지 표시 */
+  isLeader?: boolean;
 }
 
-export function GroupListItem({ group, onPress }: GroupListItemProps) {
+export function GroupListItem({ group, onPress, isLeader }: GroupListItemProps) {
   const { theme } = useTheme();
   const { fontScale } = useFontScale();
   const s = (n: number) => Math.round(n * fontScale);
@@ -19,9 +21,16 @@ export function GroupListItem({ group, onPress }: GroupListItemProps) {
       activeOpacity={0.7}
     >
       <View style={styles.info}>
-        <Text style={[styles.title, { color: theme.text, fontSize: s(16) }]} numberOfLines={1}>
-          {group.title}
-        </Text>
+        <View style={styles.titleRow}>
+          <Text style={[styles.title, { color: theme.text, fontSize: s(16) }]} numberOfLines={1}>
+            {group.title}
+          </Text>
+          {isLeader ? (
+            <View style={[styles.leaderBadge, { backgroundColor: theme.primary, marginLeft: 8 }]}>
+              <Text style={[styles.leaderBadgeText, { fontSize: s(11), color: '#FFF' }]}>모임장</Text>
+            </View>
+          ) : null}
+        </View>
         <Text style={[styles.meta, { fontSize: s(13), color: theme.textSecondary }]}>
           {group.start_book} · 하루 {group.pages_per_day}장 · {group.duration_days}일
         </Text>
@@ -46,10 +55,14 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   info: { flex: 1 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
   title: {
     fontSize: 16,
     fontWeight: '600',
+    flexShrink: 1,
   },
+  leaderBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  leaderBadgeText: { fontWeight: '600' },
   meta: {
     fontSize: 13,
     marginTop: 2,

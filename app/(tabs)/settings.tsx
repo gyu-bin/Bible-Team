@@ -7,10 +7,45 @@ import { lightTheme } from '@/constants/theme';
 import { useFontScale } from '@/contexts/FontSizeContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import type { FontSizeKey } from '@/lib/cache';
-import { upsertMyNickname } from '@/services/profileService';
+import { upsertMyNickname, upsertExpoPushToken } from '@/services/profileService';
+import { getExpoPushTokenAsync } from '@/lib/expoPushToken';
 import { clearOnboardingDone } from '@/components/OnboardingModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  setupNotificationHandler,
+  getStoredReminderTime,
+  setStoredReminderTime,
+  requestReminderPermission,
+  scheduleDailyReminder,
+  cancelAllReminders,
+  type ReminderTime,
+} from '@/lib/reminderNotifications';
 
 const NICKNAME_MAX_LENGTH = 10;
+const KEY_NOTIFICATIONS_ENABLED = '@bible_crew_notifications_enabled';
+
+const REMINDER_PRESETS: { label: string; hour: number; minute: number }[] = [
+  { label: '오전 7시', hour: 7, minute: 0 },
+  { label: '낮 12시', hour: 12, minute: 0 },
+  { label: '오후 6시', hour: 18, minute: 0 },
+  { label: '오후 8시', hour: 20, minute: 0 },
+  { label: '오후 9시', hour: 21, minute: 0 },
+];
+
+async function getNotificationsEnabled(): Promise<boolean> {
+  try {
+    const v = await AsyncStorage.getItem(KEY_NOTIFICATIONS_ENABLED);
+    return v !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+async function setNotificationsEnabled(value: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(KEY_NOTIFICATIONS_ENABLED, value ? 'true' : 'false');
+  } catch {}
+}
 const APP_VERSION = require('../../app.json').expo.version;
 
 const FONT_SIZE_OPTIONS: { key: FontSizeKey; label: string }[] = [
@@ -29,8 +64,38 @@ export default function SettingsScreen() {
   const [nicknameInput, setNicknameInput] = useState('');
   const [savingNickname, setSavingNickname] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [notificationsEnabled, setNotificationsEnabledState] = useState(true);
+  const [reminderTime, setReminderTimeState] = useState<ReminderTime>({ hour: 20, minute: 0 });
+  const [reminderPresetModal, setReminderPresetModal] = useState(false);
 
   const s = (n: number) => Math.round(n * fontScale);
+
+  const formatReminderTime = (h: number, m: number) => {
+    if (h < 12) return `오전 ${h}시 ${m ? `${m}분` : ''}`.trim();
+    if (h === 12) return `낮 12시 ${m ? `${m}분` : ''}`.trim();
+    return `오후 ${h - 12}시 ${m ? `${m}분` : ''}`.trim();
+  };
+
+  useEffect(() => {
+    setupNotificationHandler();
+    (async () => {
+      const enabled = await getNotificationsEnabled();
+      setNotificationsEnabledState(enabled);
+      const time = await getStoredReminderTime();
+      setReminderTimeState(time);
+      if (enabled) {
+        const granted = await requestReminderPermission();
+        if (granted) {
+          await scheduleDailyReminder(time.hour, time.minute);
+          const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
+          if (user?.id) {
+            const token = await getExpoPushTokenAsync();
+            if (token) await upsertExpoPushToken(user.id, token, (await getNickname()) ?? undefined).catch(() => {});
+          }
+        }
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     getCurrentUser()
@@ -152,6 +217,65 @@ export default function SettingsScreen() {
         <Text style={[styles.sectionTitle, { marginTop: 24, fontSize: s(13), color: theme.textSecondary }]}>앱</Text>
       <View style={[styles.card, { backgroundColor: theme.card }]}>
         <View style={[styles.row, { borderBottomColor: theme.border }]}>
+          <Text style={[styles.rowLabel, { fontSize: s(15), color: theme.textSecondary }]}>알림</Text>
+          <Switch
+            value={notificationsEnabled}
+            onValueChange={async (v) => {
+              setNotificationsEnabledState(v);
+              await setNotificationsEnabled(v);
+              if (v) {
+                const granted = await requestReminderPermission();
+                if (granted) {
+                  await scheduleDailyReminder(reminderTime.hour, reminderTime.minute);
+                  const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
+                  if (user?.id) {
+                    const token = await getExpoPushTokenAsync();
+                    if (token) await upsertExpoPushToken(user.id, token, nickname || undefined).catch(() => {});
+                  }
+                }
+              } else {
+                await cancelAllReminders();
+              }
+            }}
+            trackColor={{ false: theme.bgSecondary, true: theme.primary }}
+            thumbColor="#FFF"
+          />
+        </View>
+        <View style={[styles.row, { borderBottomColor: theme.border }]}>
+          <TouchableOpacity
+            style={styles.rowInner}
+            onPress={() => notificationsEnabled && setReminderPresetModal(true)}
+            disabled={!notificationsEnabled}
+          >
+            <Text style={[styles.rowLabel, { fontSize: s(15), color: theme.textSecondary }]}>리마인드 시간</Text>
+            <Text style={[styles.rowValue, { color: notificationsEnabled ? theme.text : theme.textSecondary, fontSize: s(15) }]}>
+              {formatReminderTime(reminderTime.hour, reminderTime.minute)}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        {reminderPresetModal && (
+          <View style={[styles.presetModal, { backgroundColor: theme.card }]}>
+            <Text style={[styles.presetTitle, { color: theme.text, fontSize: s(15) }]}>알림 받을 시간</Text>
+            {REMINDER_PRESETS.map((p) => (
+              <TouchableOpacity
+                key={p.label}
+                style={[styles.presetItem, { borderBottomColor: theme.border }]}
+                onPress={async () => {
+                  setReminderTimeState({ hour: p.hour, minute: p.minute });
+                  await setStoredReminderTime({ hour: p.hour, minute: p.minute });
+                  if (notificationsEnabled) await scheduleDailyReminder(p.hour, p.minute);
+                  setReminderPresetModal(false);
+                }}
+              >
+                <Text style={[styles.presetItemText, { color: theme.text, fontSize: s(15) }]}>{p.label}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.presetCancel} onPress={() => setReminderPresetModal(false)}>
+              <Text style={[styles.presetCancelText, { color: theme.textSecondary, fontSize: s(15) }]}>취소</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        <View style={[styles.row, { borderBottomColor: theme.border }]}>
           <Text style={[styles.rowLabel, { fontSize: s(15), color: theme.textSecondary }]}>다크 모드</Text>
           <Switch
             value={isDarkMode}
@@ -185,19 +309,6 @@ export default function SettingsScreen() {
             ))}
           </View>
         </View>
-        <TouchableOpacity
-          style={[styles.row, { borderBottomColor: theme.border }]}
-          onPress={async () => {
-            await clearOnboardingDone();
-            Alert.alert('확인', '모임이 없을 때 홈에서 사용법이 다시 표시돼요.', [
-              { text: '확인', onPress: () => router.push('/(tabs)') },
-            ]);
-          }}
-          activeOpacity={0.7}
-        >
-          <Text style={[styles.rowLabel, { fontSize: s(15), color: theme.textSecondary }]}>앱 사용법 다시 보기</Text>
-          <Text style={[styles.rowChevron, { fontSize: s(18), color: theme.textSecondary }]}>›</Text>
-        </TouchableOpacity>
         <View style={[styles.row, styles.rowLast, { borderBottomColor: theme.border }]}>
           <Text style={[styles.rowLabel, { fontSize: s(15), color: theme.textSecondary }]}>버전</Text>
           <Text style={[styles.rowValue, { color: theme.text, fontSize: s(15) }]}>{APP_VERSION}</Text>
@@ -233,6 +344,27 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: lightTheme.border,
   },
+  rowInner: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  presetModal: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 16,
+    borderTopWidth: 1,
+    borderTopColor: lightTheme.border,
+  },
+  presetTitle: { marginBottom: 12, fontWeight: '600' },
+  presetItem: {
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  presetItemText: { fontWeight: '500' },
+  presetCancel: { paddingVertical: 14, alignItems: 'center', marginTop: 8 },
+  presetCancelText: {},
   cardHint: { paddingHorizontal: 4, paddingBottom: 8 },
   rowLast: { borderBottomWidth: 0 },
   rowLabel: { fontSize: 15, color: lightTheme.textSecondary },

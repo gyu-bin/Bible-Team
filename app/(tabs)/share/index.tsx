@@ -23,11 +23,15 @@ import {
   getSharePosts,
   getShareCounts,
   deleteSharePost,
+  updateSharePost,
   getShareLikes,
   toggleShareLike,
   getShareComments,
   addShareComment,
+  deleteShareComment,
 } from '@/lib/shareStorage';
+
+const SHARE_PAGE_SIZE = 20;
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getOrCreateLocalUserId, getCachedGroups, getLocalGroups, getNickname } from '@/lib/cache';
 import { getNicknamesByUserIds } from '@/services/profileService';
@@ -66,11 +70,23 @@ export default function ShareListScreen() {
   const [filterGroups, setFilterGroups] = useState<{ id: string; title: string }[]>([]);
   const [authorNicknamesMap, setAuthorNicknamesMap] = useState<Record<string, string>>({});
   const [currentUserNickname, setCurrentUserNickname] = useState('');
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editContent, setEditContent] = useState('');
+  const [editGroupId, setEditGroupId] = useState<string | null>(null);
+  const [editGroupTitle, setEditGroupTitle] = useState<string | null>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const params = useLocalSearchParams<{ groupId?: string }>();
 
   const loadPosts = useCallback(async () => {
-    const [list, counts] = await Promise.all([getSharePosts(), getShareCounts()]);
+    const [list, counts] = await Promise.all([
+      getSharePosts({ limit: SHARE_PAGE_SIZE, offset: 0 }),
+      getShareCounts(),
+    ]);
     setPosts(list);
+    setHasMorePosts(list.length >= SHARE_PAGE_SIZE);
     setLikeCountByPost(counts.likeCountByPost);
     setCommentCountByPost(counts.commentCountByPost);
     const authorIds = [...new Set(list.map((p) => p.authorId).filter(Boolean))];
@@ -82,6 +98,26 @@ export default function ShareListScreen() {
     setCurrentUserNickname(currentNick ?? '');
     return list;
   }, []);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMorePosts) return;
+    setLoadingMore(true);
+    try {
+      const list = await getSharePosts({ limit: SHARE_PAGE_SIZE, offset: posts.length });
+      setPosts((prev) => [...prev, ...list]);
+      setHasMorePosts(list.length >= SHARE_PAGE_SIZE);
+      const counts = await getShareCounts();
+      setLikeCountByPost(counts.likeCountByPost);
+      setCommentCountByPost(counts.commentCountByPost);
+      const authorIds = [...new Set(list.map((p) => p.authorId).filter(Boolean))];
+      if (authorIds.length > 0) {
+        const nickMap = await getNicknamesByUserIds(authorIds).catch(() => ({}));
+        setAuthorNicknamesMap((prev) => ({ ...prev, ...nickMap }));
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMorePosts, posts.length]);
 
   const load = useCallback(async () => {
     try {
@@ -191,6 +227,63 @@ export default function ShareListScreen() {
     );
   };
 
+  const openEditModal = () => {
+    if (!detailPost) return;
+    setEditContent(detailPost.content);
+    setEditGroupId(detailPost.groupId ?? null);
+    setEditGroupTitle(detailPost.groupTitle ?? null);
+    setEditModalVisible(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!detailPost || !editContent.trim() || editSubmitting) return;
+    setEditSubmitting(true);
+    try {
+      const updated = await updateSharePost(detailPost.id, editContent.trim(), {
+        groupId: editGroupId,
+        groupTitle: editGroupTitle,
+      });
+      setPosts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      setDetailPost(updated);
+      setEditModalVisible(false);
+      await loadPosts();
+    } catch (e) {
+      console.error(e);
+      Alert.alert('오류', '수정에 실패했어요.');
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  const handleDeleteComment = (c: ShareComment) => {
+    if (c.authorId !== currentUserId) return;
+    Alert.alert(
+      '댓글 삭제',
+      '이 댓글을 삭제할까요?',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '삭제',
+          style: 'destructive',
+          onPress: async () => {
+            setDeletingCommentId(c.id);
+            try {
+              await deleteShareComment(c.id);
+              const comments = await getShareComments(detailPost!.id);
+              setDetailComments(comments);
+              await loadPosts();
+            } catch (e) {
+              console.error(e);
+              Alert.alert('오류', '댓글 삭제에 실패했어요.');
+            } finally {
+              setDeletingCommentId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.bg }]}>
@@ -273,6 +366,19 @@ export default function ShareListScreen() {
             );
           })
         )}
+        {!filterGroupId && hasMorePosts && posts.length > 0 && (
+          <TouchableOpacity
+            style={[styles.loadMoreBtn, { backgroundColor: theme.bgSecondary }]}
+            onPress={loadMore}
+            disabled={loadingMore}
+          >
+            {loadingMore ? (
+              <Text style={[styles.loadMoreText, { fontSize: s(14), color: theme.textSecondary }]}>불러오는 중...</Text>
+            ) : (
+              <Text style={[styles.loadMoreText, { fontSize: s(14), color: theme.primary }]}>더 보기</Text>
+            )}
+          </TouchableOpacity>
+        )}
       </ScrollView>
 
       <View style={styles.fabWrapper} pointerEvents="box-none">
@@ -339,16 +445,38 @@ export default function ShareListScreen() {
                       </Text>
                     </TouchableOpacity>
                     {currentUserId === detailPost.authorId && (
-                      <TouchableOpacity style={styles.detailDeleteRow} onPress={handleDeletePost} activeOpacity={0.7}>
-                        <Ionicons name="trash-outline" size={s(18)} color="#DC2626" />
-                        <Text style={[styles.detailDeleteText, { fontSize: s(14) }]}>글 삭제</Text>
-                      </TouchableOpacity>
+                      <View style={styles.detailActionsRow}>
+                        <TouchableOpacity style={styles.detailEditRow} onPress={openEditModal} activeOpacity={0.7}>
+                          <Ionicons name="pencil-outline" size={s(18)} color={theme.primary} />
+                          <Text style={[styles.detailEditText, { fontSize: s(14), color: theme.primary }]}>글 수정</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.detailDeleteRow} onPress={handleDeletePost} activeOpacity={0.7}>
+                          <Ionicons name="trash-outline" size={s(18)} color="#DC2626" />
+                          <Text style={[styles.detailDeleteText, { fontSize: s(14) }]}>글 삭제</Text>
+                        </TouchableOpacity>
+                      </View>
                     )}
                   </View>
                   <Text style={[styles.commentsTitle, { fontSize: s(14) }]}>댓글 ({detailComments.length})</Text>
                   {detailComments.map((c) => (
                     <View key={c.id} style={[styles.commentRow, { borderBottomColor: theme.border }]}>
-                      <Text style={[styles.commentNickname, { fontSize: s(13) }]}>{displayNickname(c.authorId, c.authorNickname)}</Text>
+                      <View style={styles.commentRowTop}>
+                        <Text style={[styles.commentNickname, { fontSize: s(13) }]}>{displayNickname(c.authorId, c.authorNickname)}</Text>
+                        {currentUserId === c.authorId && (
+                          <TouchableOpacity
+                            onPress={() => handleDeleteComment(c)}
+                            disabled={deletingCommentId === c.id}
+                            style={styles.commentDeleteBtn}
+                            hitSlop={8}
+                          >
+                            {deletingCommentId === c.id ? (
+                              <Text style={[styles.commentDeleteText, { fontSize: s(11), color: theme.textSecondary }]}>삭제 중</Text>
+                            ) : (
+                              <Text style={[styles.commentDeleteText, { fontSize: s(11), color: '#DC2626' }]}>삭제</Text>
+                            )}
+                          </TouchableOpacity>
+                        )}
+                      </View>
                       <Text style={[styles.commentContent, { fontSize: s(14) }]}>{c.content}</Text>
                       <Text style={[styles.commentDate, { fontSize: s(11) }]}>{formatDate(c.createdAt)}</Text>
                     </View>
@@ -377,6 +505,59 @@ export default function ShareListScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* 글 수정 모달 */}
+      <Modal visible={editModalVisible} animationType="slide" transparent>
+        <KeyboardAvoidingView style={styles.editModalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={[styles.editModalContent, { backgroundColor: theme.bg }]}>
+            <View style={[styles.editModalHeader, { borderBottomColor: theme.border }]}>
+              <TouchableOpacity onPress={() => setEditModalVisible(false)}>
+                <Text style={[styles.editModalCancel, { fontSize: s(16), color: theme.textSecondary }]}>취소</Text>
+              </TouchableOpacity>
+              <Text style={[styles.editModalTitle, { fontSize: s(18), color: theme.text }]}>글 수정</Text>
+              <TouchableOpacity onPress={handleSaveEdit} disabled={!editContent.trim() || editSubmitting}>
+                <Text style={[styles.editModalSave, { fontSize: s(16), color: editContent.trim() && !editSubmitting ? theme.primary : theme.textSecondary }]}>
+                  {editSubmitting ? '저장 중...' : '저장'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <TextInput
+              style={[styles.editModalInput, { backgroundColor: theme.card, color: theme.text, fontSize: s(16) }]}
+              placeholder="내용을 입력하세요"
+              placeholderTextColor={theme.textSecondary}
+              value={editContent}
+              onChangeText={setEditContent}
+              multiline
+              textAlignVertical="top"
+            />
+            <TouchableOpacity
+              style={[styles.editModalGroupRow, { borderTopColor: theme.border, backgroundColor: theme.card }]}
+              onPress={() => {
+                const choices = [{ id: null, title: '선택 안 함' }, ...filterGroups];
+                Alert.alert(
+                  '모임 선택',
+                  undefined,
+                  [
+                    { text: '취소', style: 'cancel' },
+                    ...choices.map((g) => ({
+                      text: g.title ?? '선택 안 함',
+                      onPress: () => {
+                        setEditGroupId(g.id);
+                        setEditGroupTitle(g.title ?? null);
+                      },
+                    })),
+                  ]
+                );
+              }}
+            >
+              <Text style={[styles.editModalGroupLabel, { fontSize: s(14), color: theme.textSecondary }]}>모임</Text>
+              <Text style={[styles.editModalGroupValue, { fontSize: s(15), color: theme.text }]} numberOfLines={1}>
+                {editGroupTitle ?? '선택 안 함'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -400,6 +581,14 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', paddingVertical: 48 },
   emptyText: { color: lightTheme.textSecondary },
   emptySub: { color: lightTheme.textSecondary, marginTop: 8 },
+  loadMoreBtn: {
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: 'center',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  loadMoreText: { fontWeight: '600' },
   card: {
     borderRadius: 20,
     padding: 18,
@@ -491,8 +680,43 @@ const styles = StyleSheet.create({
   detailDate: { color: lightTheme.textSecondary, marginBottom: 12 },
   detailLikeRow: { flexDirection: 'row', alignItems: 'center' },
   detailLikeText: { color: lightTheme.textSecondary, marginLeft: 6 },
-  detailDeleteRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12 },
+  detailActionsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 16 },
+  detailEditRow: { flexDirection: 'row', alignItems: 'center' },
+  detailEditText: { marginLeft: 6 },
+  detailDeleteRow: { flexDirection: 'row', alignItems: 'center' },
   detailDeleteText: { color: '#DC2626', marginLeft: 6 },
+  commentRowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  commentDeleteBtn: { paddingVertical: 4, paddingHorizontal: 8 },
+  commentDeleteText: {},
+  editModalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
+  editModalContent: { borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 32 },
+  editModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  editModalCancel: {},
+  editModalTitle: { fontWeight: '600' },
+  editModalSave: { fontWeight: '600' },
+  editModalInput: {
+    minHeight: 120,
+    margin: 20,
+    padding: 16,
+    borderRadius: 12,
+  },
+  editModalGroupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+  },
+  editModalGroupLabel: { fontWeight: '500' },
+  editModalGroupValue: { flex: 1, marginLeft: 12, textAlign: 'right' },
   commentsTitle: { fontWeight: '600', color: lightTheme.text, marginBottom: 12 },
   commentRow: {
     paddingVertical: 12,

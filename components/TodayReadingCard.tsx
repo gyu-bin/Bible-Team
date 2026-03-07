@@ -21,6 +21,10 @@ interface TodayReadingCardProps {
   onUndoComplete?: () => void;
   completing: boolean;
   onPress?: () => void;
+  /** 있으면 카드에 "접기" 버튼 표시 */
+  onCollapse?: () => void;
+  /** 미완료 멤버에게 리마인드 푸시 보내기 (toUserId 전달) */
+  onSendReminder?: (toUserId: string) => void;
   memberProgress?: MemberProgressItem[];
   /** user_id → 닉네임 (서버 profiles). 있으면 함께 읽는 사람들에 닉네임 표시 */
   memberNicknames?: Record<string, string>;
@@ -37,6 +41,8 @@ export function TodayReadingCard({
   onUndoComplete,
   completing,
   onPress,
+  onCollapse,
+  onSendReminder,
   memberProgress = [],
   memberNicknames,
   currentUserId,
@@ -54,15 +60,32 @@ export function TodayReadingCard({
       : `${group.start_book} · 하루 ${group.pages_per_day}장`;
 
   return (
-    <TouchableOpacity
-      style={[styles.card, { backgroundColor: theme.card }]}
-      onPress={onPress}
-      activeOpacity={onPress ? 0.7 : 1}
-      disabled={!onPress}
-    >
-      <Text style={[styles.title, { color: theme.text, fontSize: s(17) }]} numberOfLines={1}>
-        {group.title}
-      </Text>
+    <View style={[styles.card, { backgroundColor: theme.card }]}>
+      <View style={styles.titleRow}>
+        <Text style={[styles.title, { color: theme.text, fontSize: s(17) }]} numberOfLines={1}>
+          {group.title}
+        </Text>
+        {currentUserId && group.leader_id === currentUserId ? (
+          <View style={[styles.leaderBadge, { backgroundColor: theme.primary, marginLeft: 8 }]}>
+            <Text style={[styles.leaderBadgeText, { fontSize: s(10), color: '#FFF' }]}>모임장</Text>
+          </View>
+        ) : null}
+        {onCollapse ? (
+          <TouchableOpacity
+            style={[styles.collapseBtn, { marginLeft: 8 }]}
+            onPress={onCollapse}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={[styles.collapseBtnText, { color: theme.textSecondary, fontSize: s(12) }]}>접기</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+      <TouchableOpacity
+        style={styles.cardContent}
+        onPress={onPress}
+        activeOpacity={onPress ? 0.7 : 1}
+        disabled={!onPress}
+      >
       <Text style={[styles.todayLabel, { fontSize: s(12), color: theme.textSecondary }]}>오늘의 분량</Text>
       <Text style={[styles.chapters, { color: theme.text, fontSize: s(15) }]} numberOfLines={2}>
         {todayText}
@@ -84,9 +107,15 @@ export function TodayReadingCard({
                     ? (currentUserNickname || '나')
                     : (memberNicknames?.[mp.user_id] ?? `멤버 ${i + 1}`)}
                 </Text>
-                <Text style={[styles.memberProgressStatus, { fontSize: s(13), color: theme.textSecondary }, mp.todayCompleted && { color: theme.doneText }]}>
-                  {mp.todayCompleted ? '✓ 오늘 완료' : '○ 미완료'}
-                </Text>
+                {mp.todayCompleted ? (
+                  <Text style={[styles.memberProgressStatus, { fontSize: s(13), color: theme.doneText }]}>✓ 오늘 완료</Text>
+                ) : currentUserId !== mp.user_id && onSendReminder ? (
+                  <TouchableOpacity onPress={() => onSendReminder(mp.user_id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text style={[styles.memberProgressStatus, { fontSize: s(13), color: theme.textSecondary }]}>○ 미완료 · 탭하면 리마인드</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={[styles.memberProgressStatus, { fontSize: s(13), color: theme.textSecondary }]}>○ 미완료</Text>
+                )}
               </View>
               {typeof mp.completedDays === 'number' && totalDays > 0 && (
                 <View style={styles.memberProgressBarRow}>
@@ -130,7 +159,8 @@ export function TodayReadingCard({
           <Text style={[styles.doneBadgeText, { color: theme.doneText, fontSize: s(14) }]}>✓ 오늘 완료 · 탭하면 취소</Text>
         </TouchableOpacity>
       )}
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -145,11 +175,17 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  titleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 },
+  cardContent: { flex: 1 },
+  collapseBtn: { paddingVertical: 4, paddingHorizontal: 8 },
+  collapseBtnText: { fontWeight: '600' },
   title: {
     fontSize: 17,
     fontWeight: '700',
-    marginBottom: 4,
+    flexShrink: 1,
   },
+  leaderBadge: { paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6 },
+  leaderBadgeText: { fontWeight: '600' },
   todayLabel: {
     fontSize: 12,
     marginBottom: 2,

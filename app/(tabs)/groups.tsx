@@ -319,6 +319,7 @@ export default function GroupsScreen() {
               key={group.id}
               group={group}
               onPress={() => router.push(`/group/${group.id}`)}
+              isLeader={!!userId && group.leader_id === userId}
             />
           ))
         )}
