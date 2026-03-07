@@ -117,14 +117,14 @@ export function TodayReadingCard({
                   <Text style={[styles.memberProgressStatus, { fontSize: s(13), color: theme.textSecondary }]}>○ 미완료</Text>
                 )}
               </View>
-              {typeof mp.completedDays === 'number' && totalDays > 0 && (
+              {totalDays > 0 && (
                 <View style={styles.memberProgressBarRow}>
                   <Text style={[styles.memberDayText, { fontSize: s(11), color: theme.textSecondary }]}>
-                    {mp.completedDays}일차 / {totalDays}일
+                    {(mp.completedDays ?? 0)}일차 / {totalDays}일
                   </Text>
                   <View style={{ flex: 1 }}>
                     <ProgressBar
-                      progress={Math.min(1, mp.completedDays / totalDays)}
+                      progress={Math.min(1, (mp.completedDays ?? 0) / totalDays)}
                       fillColor={theme.primary}
                       backgroundColor={theme.border}
                       height={6}

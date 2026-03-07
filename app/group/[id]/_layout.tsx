@@ -5,6 +5,7 @@ export default function GroupIdLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="feed" />
+      <Stack.Screen name="edit" />
     </Stack>
   );
 }

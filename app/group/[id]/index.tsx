@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Alert,
   ScrollView,
+  RefreshControl,
   Share,
   Platform,
 } from 'react-native';
@@ -44,20 +45,20 @@ export default function GroupDetailScreen() {
   const [certifications, setCertifications] = useState<CertificationItem[]>([]);
   const [leaving, setLeaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    if (!id) return;
+  const isLocalGroup = typeof id === 'string' && (id.startsWith('local_') || isLocalUserId(id));
 
-    (async () => {
+  const loadGroup = useCallback(
+    async (opts: { silent?: boolean } = {}) => {
+      if (!id) return;
+      if (!opts.silent) setLoading(true);
       try {
         const [user, nickname] = await Promise.all([
           ensureAnonymousUser().catch(() => null) ?? getCurrentUser().catch(() => null),
           getNickname(),
         ]);
-        const isLocal = typeof id === 'string' && (id.startsWith('local_') || isLocalUserId(id));
-        const groupData = isLocal
-          ? await getLocalGroupById(id)
-          : await getGroupById(id);
+        const groupData = isLocalGroup ? await getLocalGroupById(id) : await getGroupById(id);
         setGroup(groupData ?? null);
         if (groupData) {
           const [desc, certs] = await Promise.all([
@@ -67,17 +68,16 @@ export default function GroupDetailScreen() {
           setDescription(desc);
           setCertifications(certs);
         }
-        const uid = user?.id ?? (isLocal ? await getOrCreateLocalUserId() : null);
+        const uid = user?.id ?? (isLocalGroup ? await getOrCreateLocalUserId() : null);
         setCurrentUserId(uid);
         setMyNickname(nickname ?? '');
 
-        // 로컬 닉네임을 서버(profiles)에 동기화 → 다른 멤버에게 내 닉네임이 보이게
         if (user?.id && nickname?.trim()) {
           upsertMyNickname(user.id, nickname).catch(() => {});
         }
 
         if (groupData && user) {
-          if (isLocal) {
+          if (isLocalGroup) {
             setAlreadyMember(true);
             setMembers([{ user_id: user.id, joined_at: new Date().toISOString() }]);
           } else {
@@ -85,18 +85,15 @@ export default function GroupDetailScreen() {
             setAlreadyMember(member);
             const list = await getGroupMembers(groupData.id);
             setMembers(list);
-            const nickMap = await getNicknamesByUserIds(list.map((m) => m.user_id)).catch((err) => {
-              console.warn('getNicknamesByUserIds failed', err);
-              return {};
-            });
+            const nickMap = await getNicknamesByUserIds(list.map((m) => m.user_id)).catch(() => ({}));
             setMemberNicknames(nickMap);
           }
-        } else if (groupData && isLocal) {
+        } else if (groupData && isLocalGroup) {
           setAlreadyMember(true);
           if (groupData.leader_id) {
             setMembers([{ user_id: groupData.leader_id, joined_at: groupData.created_at }]);
           }
-        } else if (groupData && !isLocal) {
+        } else if (groupData && !isLocalGroup) {
           const list = await getGroupMembers(groupData.id);
           setMembers(list);
           const nickMap = await getNicknamesByUserIds(list.map((m) => m.user_id)).catch(() => ({}));
@@ -104,29 +101,34 @@ export default function GroupDetailScreen() {
         }
       } catch (e) {
         console.error(e);
-        setGroup(null);
+        if (!opts.silent) setGroup(null);
       } finally {
-        setLoading(false);
+        if (!opts.silent) setLoading(false);
       }
-    })();
-  }, [id]);
+    },
+    [id, isLocalGroup]
+  );
 
-  const isLocalGroup = typeof id === 'string' && (id.startsWith('local_') || isLocalUserId(id));
+  useEffect(() => {
+    loadGroup();
+  }, [loadGroup]);
+
   const isLeader = !!group && !!currentUserId && group.leader_id === currentUserId;
 
   useFocusEffect(
     useCallback(() => {
       getNickname().then((n) => setMyNickname(n ?? ''));
-      if (!id || !group?.id) return;
-      getCertifications(group.id).then(setCertifications);
-      // 멤버 닉네임 다시 불러오기 (다른 사람이 설정에서 닉네임 저장했을 수 있음)
-      if (group && !isLocalGroup && members.length > 0) {
-        getNicknamesByUserIds(members.map((m) => m.user_id))
-          .then(setMemberNicknames)
-          .catch(() => {});
-      }
-    }, [id, group?.id, members.length, isLocalGroup])
+      if (!id) return;
+      loadGroup({ silent: true });
+    }, [id, loadGroup])
   );
+
+  const onRefresh = useCallback(async () => {
+    if (!id) return;
+    setRefreshing(true);
+    await loadGroup({ silent: true });
+    setRefreshing(false);
+  }, [id, loadGroup]);
 
   const handleLeave = () => {
     if (!group || !currentUserId) return;
@@ -273,7 +275,12 @@ export default function GroupDetailScreen() {
           <Ionicons name="share-outline" size={s(24)} color={theme.primary} />
         </TouchableOpacity>
       </View>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />}
+      >
       <View style={[styles.card, { backgroundColor: theme.card }]}>
         <Text style={[styles.title, { color: theme.text, fontSize: s(22) }]}>{group.title}</Text>
         <Text style={[styles.meta, { fontSize: s(15), color: theme.textSecondary }]}>시작: {group.start_book}</Text>
@@ -362,6 +369,15 @@ export default function GroupDetailScreen() {
             </Text>
           </View>
           <View style={styles.actionsRow}>
+            {isLeader && (
+              <TouchableOpacity
+                style={[styles.editButton, { borderColor: theme.primary }]}
+                onPress={() => router.push(`/group/${id}/edit`)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.editButtonText, { fontSize: s(15), color: theme.primary }]}>모임 수정</Text>
+              </TouchableOpacity>
+            )}
             {!isLeader && (
               <TouchableOpacity
                 style={[styles.leaveButton, { borderColor: theme.textSecondary }, leaving && styles.actionDisabled]}
@@ -449,9 +465,18 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   memberBadgeText: { fontSize: 16, fontWeight: '600' },
-  actionsRow: { flexDirection: 'row' },
+  actionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  editButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  editButtonText: { fontWeight: '600' },
   leaveButton: {
     flex: 1,
+    minWidth: 100,
     marginRight: 6,
     paddingVertical: 14,
     borderRadius: 20,

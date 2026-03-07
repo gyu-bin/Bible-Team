@@ -92,6 +92,36 @@ export async function getLocalGroupById(id: string): Promise<ReadingGroupRow | n
   return list.find((g) => g.id === id) ?? null;
 }
 
+/** 로컬 모임 수정 (모임장만. title, start_book, pages_per_day, duration_days) */
+export async function updateLocalGroup(
+  groupId: string,
+  input: { title: string; startBook: string; pagesPerDay: number; durationDays: number }
+): Promise<ReadingGroupRow | null> {
+  const list = await getLocalGroups();
+  const idx = list.findIndex((g) => g.id === groupId);
+  if (idx < 0) return null;
+  const now = new Date().toISOString();
+  const updated: ReadingGroupRow = {
+    ...list[idx],
+    title: input.title,
+    start_book: input.startBook,
+    pages_per_day: input.pagesPerDay,
+    duration_days: input.durationDays,
+    updated_at: now,
+  };
+  const newList = [...list];
+  newList[idx] = updated;
+  await setLocalGroups(newList);
+  const cached = await getCachedGroups();
+  const cacheIdx = cached.findIndex((g) => g.id === groupId);
+  if (cacheIdx >= 0) {
+    const newCached = [...cached];
+    newCached[cacheIdx] = updated;
+    await setCachedGroups(newCached);
+  }
+  return updated;
+}
+
 export async function getCachedGroups(): Promise<ReadingGroupRow[]> {
   try {
     const raw = await AsyncStorage.getItem(KEY_MY_GROUPS);

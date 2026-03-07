@@ -41,6 +41,28 @@ export async function createGroup(input: CreateGroupInput): Promise<ReadingGroup
   return data as ReadingGroupRow;
 }
 
+/** 모임 수정 (모임장만. title, start_book, pages_per_day, duration_days) */
+export async function updateGroup(
+  groupId: string,
+  input: { title: string; startBook: string; pagesPerDay: number; durationDays: number }
+): Promise<ReadingGroupRow> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any)
+    .from('reading_groups')
+    .update({
+      title: input.title,
+      start_book: input.startBook,
+      pages_per_day: input.pagesPerDay,
+      duration_days: input.durationDays,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', groupId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as ReadingGroupRow;
+}
+
 export async function getGroupById(id: string): Promise<ReadingGroupRow | null> {
   const { data, error } = await supabase
     .from('reading_groups')

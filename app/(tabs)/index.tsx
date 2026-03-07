@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getMyGroups } from '@/services/groupService';
@@ -277,7 +277,7 @@ export default function HomeScreen() {
   const listToShow = [...inProgressGroups, ...(showCompleted ? completedGroups : [])];
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
@@ -349,30 +349,6 @@ export default function HomeScreen() {
               completing={completingId === group.id}
               onPress={() => router.push(`/group/${group.id}`)}
               onCollapse={() => setCollapsedGroupIds((prev) => ({ ...prev, [group.id]: true }))}
-              {/* 리마인드(미완료 멤버에게 푸시) 기능 - Edge Function 배포 후 주석 해제
-              onSendReminder={
-                userId && !group.id.startsWith('local_')
-                  ? (toUserId) => {
-                      const name = memberNicknames[toUserId] ?? '해당 멤버';
-                      Alert.alert('리마인드 보내기', `${name}님에게 읽기 리마인드 알림을 보낼까요?`, [
-                        { text: '취소', style: 'cancel' },
-                        {
-                          text: '보내기',
-                          onPress: async () => {
-                            const res = await sendReminderPush(toUserId, group.id, myNickname || '모임원');
-                            if (res.ok) Alert.alert('알림', '리마인드를 보냈어요.');
-                            else if (res.error === 'no_push_token') Alert.alert('알 수 없음', '상대방이 알림을 허용하지 않았을 수 있어요.');
-                            else if (res.error === 'already_sent_today') Alert.alert('알림', '오늘 이미 이 멤버에게 보냈어요.');
-                            else if (res.error === 'function_unavailable') Alert.alert('알 수 없음', '리마인드 기능을 사용하려면 Edge Function 배포와 DB 마이그레이션(schema-push-reminder.sql)이 필요해요.');
-                            else if (res.error === 'unauthorized') Alert.alert('알 수 없음', '로그인 후 다시 시도해주세요.');
-                            else Alert.alert('알 수 없음', res.error);
-                          },
-                        },
-                      ]);
-                    }
-                  : undefined
-              }
-              */}
               memberProgress={memberProgress[group.id]}
               memberNicknames={memberNicknames}
               currentUserId={userId ?? undefined}
