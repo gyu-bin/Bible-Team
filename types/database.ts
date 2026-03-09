@@ -18,6 +18,7 @@ export interface Database {
           pages_per_day: number;
           duration_days: number;
           invite_code: string;
+          description?: string | null;
           created_at: string;
           updated_at: string;
           /** 선택. 이 날부터 모임이 열림. 없으면 created_at 기준 */
@@ -31,6 +32,7 @@ export interface Database {
           pages_per_day: number;
           duration_days: number;
           invite_code: string;
+          description?: string | null;
           created_at?: string;
           updated_at?: string;
           starts_at?: string | null;

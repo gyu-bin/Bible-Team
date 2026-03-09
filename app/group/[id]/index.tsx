@@ -15,6 +15,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getGroupById, getGroupMembers, joinGroup, isMember, leaveGroup, deleteGroup } from '@/services/groupService';
+import { getGroupWeeklyParticipation } from '@/services/readingLogService';
 import type { ReadingGroupRow } from '@/types/database';
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getCachedGroups, setCachedGroups, getLocalGroupById, isLocalUserId, getNickname, removeGroupFromMyCache, deleteLocalGroup, getOrCreateLocalUserId } from '@/lib/cache';
@@ -44,6 +45,7 @@ export default function GroupDetailScreen() {
   const [leaving, setLeaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [weeklyStats, setWeeklyStats] = useState<{ totalMembers: number; activeThisWeek: number; memberWeeklyDays: Record<string, number> } | null>(null);
 
   const isLocalGroup = typeof id === 'string' && (id.startsWith('local_') || isLocalUserId(id));
 
@@ -59,7 +61,9 @@ export default function GroupDetailScreen() {
         const groupData = isLocalGroup ? await getLocalGroupById(id) : await getGroupById(id);
         setGroup(groupData ?? null);
         if (groupData) {
-          const desc = await getGroupDescription(groupData.id);
+          // DB description 우선, 없으면 로컬 저장 fallback
+          const dbDesc = groupData.description?.trim() ?? '';
+          const desc = dbDesc || (await getGroupDescription(groupData.id));
           setDescription(desc);
         }
         const uid = user?.id ?? (isLocalGroup ? await getOrCreateLocalUserId() : null);
@@ -79,8 +83,12 @@ export default function GroupDetailScreen() {
             setAlreadyMember(member);
             const list = await getGroupMembers(groupData.id);
             setMembers(list);
-            const nickMap = await getNicknamesByUserIds(list.map((m) => m.user_id)).catch(() => ({}));
+            const [nickMap, stats] = await Promise.all([
+              getNicknamesByUserIds(list.map((m) => m.user_id)).catch(() => ({})),
+              getGroupWeeklyParticipation(groupData.id).catch(() => null),
+            ]);
             setMemberNicknames(nickMap);
+            if (stats) setWeeklyStats({ ...stats, totalMembers: list.length });
           }
         } else if (groupData && isLocalGroup) {
           setAlreadyMember(true);
@@ -89,9 +97,13 @@ export default function GroupDetailScreen() {
           }
         } else if (groupData && !isLocalGroup) {
           const list = await getGroupMembers(groupData.id);
+          const [nickMap, stats] = await Promise.all([
+            getNicknamesByUserIds(list.map((m) => m.user_id)).catch(() => ({})),
+            getGroupWeeklyParticipation(groupData.id).catch(() => null),
+          ]);
           setMembers(list);
-          const nickMap = await getNicknamesByUserIds(list.map((m) => m.user_id)).catch(() => ({}));
           setMemberNicknames(nickMap);
+          if (stats) setWeeklyStats({ ...stats, totalMembers: list.length });
         }
       } catch (e) {
         console.error(e);
@@ -290,6 +302,35 @@ export default function GroupDetailScreen() {
             <Text style={[styles.descriptionText, { fontSize: s(15), color: theme.text }]}>{description}</Text>
           </View>
         ) : null}
+        {weeklyStats && members.length > 0 && (
+          <View style={[styles.memberSection, { borderTopColor: theme.border }]}>
+            <Text style={[styles.memberSectionTitle, { fontSize: s(13), color: theme.textSecondary }]}>이번 주 참여 현황</Text>
+            <View style={[styles.statsRow, { backgroundColor: theme.bgSecondary }]}>
+              <Text style={[styles.statsMainText, { fontSize: s(16), color: theme.text }]}>
+                {weeklyStats.activeThisWeek}
+                <Text style={{ color: theme.textSecondary, fontWeight: '400' }}>/{members.length}명</Text>
+              </Text>
+              <Text style={[styles.statsSubText, { fontSize: s(13), color: theme.textSecondary }]}>
+                이번 주에 읽었어요
+              </Text>
+            </View>
+            {members.map((m, i) => {
+              const days = weeklyStats.memberWeeklyDays[m.user_id] ?? 0;
+              const displayName = currentUserId === m.user_id
+                ? (myNickname || memberNicknames[m.user_id] || '나')
+                : (memberNicknames[m.user_id] || `멤버 ${i + 1}`);
+              return (
+                <View key={m.user_id} style={styles.statsMemberRow}>
+                  <Text style={[styles.statsMemberName, { fontSize: s(14), color: theme.text }]}>{displayName}</Text>
+                  <Text style={[styles.statsMemberDays, { fontSize: s(13), color: days > 0 ? theme.primary : theme.textSecondary }]}>
+                    {days > 0 ? `${days}일 읽음` : '이번 주 아직'}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
         <View style={[styles.memberSection, { borderTopColor: theme.border }]}>
           <Text style={[styles.memberSectionTitle, { fontSize: s(13), color: theme.textSecondary }]}>참여 멤버 ({members.length}명)</Text>
           {members.map((m, i) => {
@@ -423,6 +464,12 @@ const styles = StyleSheet.create({
   certSectionHint: { marginTop: 2 },
   certSectionRight: { flexDirection: 'row', alignItems: 'center' },
   certCount: { fontWeight: '600', marginRight: 6 },
+  statsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 12 },
+  statsMainText: { fontWeight: '700' },
+  statsSubText: {},
+  statsMemberRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5 },
+  statsMemberName: {},
+  statsMemberDays: { fontWeight: '600' },
   memberSection: { marginTop: 20, paddingTop: 16, borderTopWidth: 1 },
   memberSectionTitle: { fontSize: 13, fontWeight: '600', marginBottom: 10 },
   memberRow: { paddingVertical: 6 },

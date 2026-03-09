@@ -11,6 +11,8 @@ create table if not exists public.reading_groups (
   pages_per_day int not null check (pages_per_day > 0),
   duration_days int not null check (duration_days > 0),
   invite_code text not null unique,
+  description text,
+  starts_at date,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

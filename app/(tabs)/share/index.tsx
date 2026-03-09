@@ -632,7 +632,7 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
   title: { fontWeight: '700', color: lightTheme.text },
   subtitle: { color: lightTheme.textSecondary, marginTop: 4 },
-  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingBottom: 12 },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingBottom: 5 },
   filterChip: {
     paddingVertical: 6,
     paddingHorizontal: 14,
@@ -640,7 +640,7 @@ const styles = StyleSheet.create({
   },
   filterChipText: { fontWeight: '600' },
   scroll: { flex: 1 },
-  scrollContent: { padding: 20, paddingBottom: 100 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 10 },
   empty: { alignItems: 'center', paddingVertical: 48 },
   emptyText: { color: lightTheme.textSecondary },
   emptySub: { color: lightTheme.textSecondary, marginTop: 8 },

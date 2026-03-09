@@ -14,4 +14,6 @@ export interface CreateGroupInput {
   durationDays: number;
   /** 선택. 이 날부터 모임이 열림. ISO 날짜(YYYY-MM-DD). 없으면 오늘 기준 */
   startsAt?: string | null;
+  /** 선택. 모임 설명 또는 규칙 */
+  description?: string | null;
 }

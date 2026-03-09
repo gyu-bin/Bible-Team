@@ -174,6 +174,52 @@ export async function deleteTodayLogs(groupId: string, userId: string): Promise<
   if (error) throw error;
 }
 
+/** 이번 주(일~토) 로컬 시작/종료 ISO 반환 */
+function getThisWeekLocalRangeISO(): { start: string; end: string } {
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const sunday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek, 0, 0, 0, 0);
+  const nextSunday = new Date(sunday);
+  nextSunday.setDate(sunday.getDate() + 7);
+  nextSunday.setMilliseconds(-1);
+  return { start: sunday.toISOString(), end: nextSunday.toISOString() };
+}
+
+/** 그룹 이번 주 참여 통계: 각 멤버의 이번 주 읽은 일수 */
+export async function getGroupWeeklyParticipation(
+  groupId: string
+): Promise<{ totalMembers: number; activeThisWeek: number; memberWeeklyDays: Record<string, number> }> {
+  try {
+    const { start, end } = getThisWeekLocalRangeISO();
+    const { data, error } = await supabase
+      .from('reading_logs')
+      .select('user_id, logged_at')
+      .eq('group_id', groupId)
+      .gte('logged_at', start)
+      .lte('logged_at', end);
+
+    if (error) return { totalMembers: 0, activeThisWeek: 0, memberWeeklyDays: {} };
+
+    const byUser: Record<string, Set<string>> = {};
+    for (const row of (data ?? []) as { user_id: string; logged_at: string }[]) {
+      const date = toLocalDateString(row.logged_at);
+      if (!byUser[row.user_id]) byUser[row.user_id] = new Set();
+      byUser[row.user_id].add(date);
+    }
+
+    const memberWeeklyDays: Record<string, number> = {};
+    for (const [uid, set] of Object.entries(byUser)) memberWeeklyDays[uid] = set.size;
+
+    return {
+      totalMembers: 0, // caller가 members.length로 채움
+      activeThisWeek: Object.keys(memberWeeklyDays).length,
+      memberWeeklyDays,
+    };
+  } catch {
+    return { totalMembers: 0, activeThisWeek: 0, memberWeeklyDays: {} };
+  }
+}
+
 /** 오늘 분량 여러 장 기록 (예: 창세기 1,2,3장) */
 export async function logChapters(
   groupId: string,

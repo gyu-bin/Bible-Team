@@ -99,10 +99,12 @@ export default function EditGroupScreen() {
       };
       if (isLocal) {
         await updateLocalGroup(group.id, input);
+        await setGroupDescription(group.id, description.trim());
       } else {
-        await updateGroup(group.id, input);
+        await updateGroup(group.id, { ...input, description: description.trim() || undefined });
+        // 로컬에도 저장 (fallback)
+        await setGroupDescription(group.id, description.trim());
       }
-      await setGroupDescription(group.id, description.trim());
       invalidate();
       router.back();
     } catch (e) {

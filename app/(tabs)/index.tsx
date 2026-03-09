@@ -50,6 +50,7 @@ export default function HomeScreen() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [completeToast, setCompleteToast] = useState<string | null>(null);
+  const [milestoneToast, setMilestoneToast] = useState<number | null>(null);
   const [completedCollapsed, setCompletedCollapsed] = useState(true);
   const [consecutiveDays, setConsecutiveDays] = useState(0);
   const [thisWeekCount, setThisWeekCount] = useState(0);
@@ -225,6 +226,12 @@ export default function HomeScreen() {
           const myDates = await getMyLoggedDates(uid).catch(() => []);
           setConsecutiveDays(getConsecutiveDays(myDates));
           setThisWeekCount(getThisWeekCompletedCount(myDates));
+          const MILESTONES = [7, 30, 66, 100, 365];
+          const totalDays = myDates.length;
+          if (MILESTONES.includes(totalDays)) {
+            setMilestoneToast(totalDays);
+            setTimeout(() => setMilestoneToast(null), 4000);
+          }
         }
         setCompleteToast(group.title);
         setTimeout(() => setCompleteToast(null), 2200);
@@ -350,6 +357,10 @@ export default function HomeScreen() {
             );
           }
           if (collapsed) {
+            const collapsedChapters = getTodayChapters(group.start_book, group.pages_per_day, displayDayIndex);
+            const collapsedReadingText = collapsedChapters.length > 0
+              ? collapsedChapters.map((r) => r.fromChapter === r.toChapter ? `${r.book} ${r.fromChapter}장` : `${r.book} ${r.fromChapter}~${r.toChapter}장`).join(', ')
+              : null;
             return (
               <TouchableOpacity
                 key={group.id}
@@ -357,9 +368,16 @@ export default function HomeScreen() {
                 onPress={() => setCollapsedGroupIds((prev) => ({ ...prev, [group.id]: false }))}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.collapsedCardTitle, { color: theme.text, fontSize: s(15) }]} numberOfLines={1}>
-                  {group.title}
-                </Text>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={[styles.collapsedCardTitle, { color: theme.text, fontSize: s(15) }]} numberOfLines={1}>
+                    {group.title}
+                  </Text>
+                  {collapsedReadingText && !loggedToday[group.id] ? (
+                    <Text style={[{ color: theme.textSecondary, fontSize: s(12), marginTop: 2 }]} numberOfLines={1}>
+                      오늘: {collapsedReadingText}
+                    </Text>
+                  ) : null}
+                </View>
                 <View style={styles.collapsedCardRight}>
                   {loggedToday[group.id] ? (
                     <Text style={[styles.collapsedCardDone, { color: theme.doneText, fontSize: s(12), marginRight: 8 }]}>오늘 완료</Text>
@@ -414,7 +432,16 @@ export default function HomeScreen() {
           </TouchableOpacity>
         )}
       </ScrollView>
-      {completeToast ? (
+      {milestoneToast ? (
+        <View style={[styles.milestoneToast, { backgroundColor: '#F59E0B' }]} pointerEvents="none">
+          <Text style={styles.milestoneToastEmoji}>
+            {milestoneToast >= 100 ? '🏆' : milestoneToast >= 66 ? '🌟' : milestoneToast >= 30 ? '🎉' : '🔥'}
+          </Text>
+          <Text style={styles.milestoneToastText}>
+            누적 {milestoneToast}일 달성! 정말 대단해요!
+          </Text>
+        </View>
+      ) : completeToast ? (
         <View style={[styles.toast, { backgroundColor: theme.primary }]} pointerEvents="none">
           <Text style={styles.toastText}>오늘 읽기 완료 ✨ · {completeToast}</Text>
         </View>
@@ -485,6 +512,23 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   toastText: { fontSize: 15, fontWeight: '600', color: '#FFF' },
+  milestoneToast: {
+    position: 'absolute',
+    bottom: 32,
+    left: 20,
+    right: 20,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  milestoneToastEmoji: { fontSize: 32, marginBottom: 4 },
+  milestoneToastText: { fontSize: 17, fontWeight: '700', color: '#FFF' },
   retryButton: {
     marginTop: 20,
     paddingVertical: 14,

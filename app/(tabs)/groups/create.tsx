@@ -110,8 +110,10 @@ export default function GroupCreateScreen() {
         pagesPerDay: pages,
         durationDays: days,
         startsAt: startsAt ?? undefined,
+        description: description.trim() || null,
       });
       await joinGroup(group.id, user.id);
+      // 로컬에도 저장 (오프라인/로컬 모임 대비 fallback)
       if (description.trim()) await setGroupDescription(group.id, description.trim());
       setCreatedGroup(group);
       setStep('share');
