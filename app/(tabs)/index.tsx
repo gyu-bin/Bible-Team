@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, A
 import { useRouter, useFocusEffect } from 'expo-router';
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getMyGroups } from '@/services/groupService';
-import { hasLoggedToday, logChapters, deleteTodayLogs, getGroupMemberProgress, getMyLoggedDates, getConsecutiveDays, getThisWeekCompletedCount } from '@/services/readingLogService';
+import { logChapters, deleteTodayLogs, getMultiGroupMemberProgress, getMyLoggedDates, getConsecutiveDays, getThisWeekCompletedCount } from '@/services/readingLogService';
 import { getNicknamesByUserIds } from '@/services/profileService';
 import { sendReminderPush } from '@/services/reminderPushService';
 import { getCachedGroups, getCachedLoggedToday, setCachedGroups, setCachedLoggedToday, setCachedLoggedTodayGroup, getLocalGroups, isLocalUserId, getOrCreateLocalUserId, getNickname } from '@/lib/cache';
@@ -64,7 +64,11 @@ export default function HomeScreen() {
   const [meditationSubmitting, setMeditationSubmitting] = useState(false);
   const [completionCelebration, setCompletionCelebration] = useState<ReadingGroupRow | null>(null);
 
+  const lastFetchRef = useRef(0);
+  const STALE_MS = 30_000;
+
   const load = useCallback(async () => {
+    lastFetchRef.current = Date.now();
     setLoadError(false);
     try {
       const [user, nickname] = await Promise.all([
@@ -99,30 +103,26 @@ export default function HomeScreen() {
       setGroups(list);
       await setCachedGroups(list);
 
+      const groupIds = list.map((g) => g.id);
+      const [progressMap, myDates] = await Promise.all([
+        getMultiGroupMemberProgress(groupIds).catch(() => ({} as Record<string, MemberProgressItem[]>)),
+        getMyLoggedDates(user.id).catch(() => [] as string[]),
+      ]);
+
+      // 내 오늘 완료 여부는 progressMap에서 추출
       const map: Record<string, boolean> = {};
-      await Promise.all(
-        list.map(async (g) => {
-          const done = await hasLoggedToday(g.id, user.id);
-          map[g.id] = done;
-        })
-      );
+      for (const g of list) {
+        const myEntry = (progressMap[g.id] ?? []).find((m) => m.user_id === user.id);
+        map[g.id] = myEntry?.todayCompleted ?? false;
+      }
       setLoggedToday(map);
       await setCachedLoggedToday(map);
-
-      const progressMap: Record<string, MemberProgressItem[]> = {};
-      await Promise.all(
-        list.map(async (g) => {
-          const progress = await getGroupMemberProgress(g.id).catch(() => []);
-          progressMap[g.id] = progress;
-        })
-      );
       setMemberProgress(progressMap);
 
       const allUserIds = Array.from(new Set(Object.values(progressMap).flat().map((m) => m.user_id)));
       const nickMap = await getNicknamesByUserIds(allUserIds).catch(() => ({}));
       setMemberNicknames(nickMap);
 
-      const myDates = await getMyLoggedDates(user.id).catch(() => []);
       setConsecutiveDays(getConsecutiveDays(myDates));
       setThisWeekCount(getThisWeekCompletedCount(myDates));
     } catch (e) {
@@ -134,24 +134,20 @@ export default function HomeScreen() {
     }
   }, []);
 
+  const mountedRef = useRef(false);
   useEffect(() => {
+    // refreshKey 변경 시만 reload (첫 마운트는 useFocusEffect가 처리)
+    if (!mountedRef.current) { mountedRef.current = true; return; }
     load();
-  }, [load]);
-
-  useEffect(() => {
-    load();
-  }, [load, refreshKey]);
+  }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useFocusEffect(
     useCallback(() => {
-      getNickname().then((n) => setMyNickname(n ?? ''));
-      // 포커스 시 진행 중인 멤버 닉네임만 먼저 재조회해 설정에서 바꾼 닉네임이 바로 반영되도록 함
-      const ids = Array.from(new Set(Object.values(memberProgress).flat().map((m) => m.user_id)));
-      if (ids.length > 0) {
-        getNicknamesByUserIds(ids).then(setMemberNicknames).catch(() => {});
-      }
+      const now = Date.now();
+      if (now - lastFetchRef.current < STALE_MS) return;
+      lastFetchRef.current = now;
       load();
-    }, [load, memberProgress])
+    }, [load])
   );
 
   useEffect(() => {

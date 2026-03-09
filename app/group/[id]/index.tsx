@@ -126,16 +126,10 @@ export default function GroupDetailScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      // 닉네임 변경 반영 (설정 화면에서 변경 후 돌아올 때)
       getNickname().then((n) => setMyNickname(n ?? ''));
-      if (!id) return;
-      // 포커스 시 현재 멤버 닉네임만 먼저 재조회해 설정 화면에서 바꾼 닉네임이 바로 반영되도록 함
-      if (members.length > 0) {
-        getNicknamesByUserIds(members.map((m) => m.user_id))
-          .then(setMemberNicknames)
-          .catch(() => {});
-      }
       loadGroup({ silent: true });
-    }, [id, loadGroup, members])
+    }, [id, loadGroup]) // members 제거 — setMembers 호출 시 무한 루프 방지
   );
 
   const onRefresh = useCallback(async () => {

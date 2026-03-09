@@ -85,8 +85,12 @@ export default function ShareListScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const params = useLocalSearchParams<{ groupId?: string }>();
   const pendingPostRef = useRef<SharePost | null>(null);
+  const mountedRef = useRef(false);
+  const lastFetchRef = useRef(0);
+  const STALE_MS = 30_000;
 
   const loadPosts = useCallback(async (mergeAtTop?: SharePost | null) => {
+    lastFetchRef.current = Date.now();
     let toMerge: SharePost | null | undefined = mergeAtTop;
     if (toMerge == null && pendingPostRef.current) {
       toMerge = pendingPostRef.current;
@@ -164,12 +168,9 @@ export default function ShareListScreen() {
   }, [loadPosts]);
 
   useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; return; }
     load();
-  }, [load]);
-
-  useEffect(() => {
-    load();
-  }, [load, refreshKey]);
+  }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useFocusEffect(
     useCallback(() => {
@@ -184,6 +185,9 @@ export default function ShareListScreen() {
           }));
         }
       }
+      const now = Date.now();
+      if (!pendingPost && now - lastFetchRef.current < STALE_MS) return;
+      lastFetchRef.current = now;
       loadPosts(pendingPost ?? undefined);
     }, [loadPosts])
   );

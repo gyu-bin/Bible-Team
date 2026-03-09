@@ -31,46 +31,96 @@ function toLocalDateString(iso: string): string {
   return `${y}-${m}-${day}`;
 }
 
-/** 모임 멤버별 완료한 일수 (logged_at을 로컬 날짜 기준 distinct). 로컬/에러 시 {} */
-export async function getMemberCompletedDays(
-  groupId: string
-): Promise<Record<string, number>> {
-  try {
-    const { data, error } = await supabase
-      .from('reading_logs')
-      .select('user_id, logged_at')
-      .eq('group_id', groupId);
+/** 모임 로그에서 멤버별 완료 일수 + 오늘 완료 여부를 쿼리 1회로 추출 */
+async function getMemberLogStats(groupId: string): Promise<{
+  completedDays: Record<string, number>;
+  todayCompleted: Record<string, boolean>;
+}> {
+  const { data, error } = await supabase
+    .from('reading_logs')
+    .select('user_id, logged_at')
+    .eq('group_id', groupId);
 
-    if (error) return {};
-    const byUser: Record<string, Set<string>> = {};
-    for (const row of (data ?? []) as { user_id: string; logged_at: string }[]) {
-      const date = toLocalDateString(row.logged_at);
-      if (!byUser[row.user_id]) byUser[row.user_id] = new Set();
-      byUser[row.user_id].add(date);
-    }
-    const out: Record<string, number> = {};
-    for (const [uid, set] of Object.entries(byUser)) out[uid] = set.size;
-    return out;
-  } catch {
-    return {};
+  if (error) return { completedDays: {}, todayCompleted: {} };
+
+  const { start, end } = getTodayLocalRangeISO();
+  const todayStart = new Date(start).getTime();
+  const todayEnd = new Date(end).getTime();
+  const byUser: Record<string, Set<string>> = {};
+  const todayCompleted: Record<string, boolean> = {};
+
+  for (const row of (data ?? []) as { user_id: string; logged_at: string }[]) {
+    if (!byUser[row.user_id]) byUser[row.user_id] = new Set();
+    byUser[row.user_id].add(toLocalDateString(row.logged_at));
+    const t = new Date(row.logged_at).getTime();
+    if (t >= todayStart && t <= todayEnd) todayCompleted[row.user_id] = true;
   }
+
+  const completedDays: Record<string, number> = {};
+  for (const [uid, set] of Object.entries(byUser)) completedDays[uid] = set.size;
+  return { completedDays, todayCompleted };
 }
 
-/** 모임 멤버별 오늘 완료 여부 + 완료 일수(진척도) */
+/** 모임 멤버별 오늘 완료 여부 + 완료 일수(진척도) — 쿼리 2회 */
 export async function getGroupMemberProgress(
   groupId: string
 ): Promise<{ user_id: string; todayCompleted: boolean; completedDays?: number }[]> {
-  const [members, completedDaysMap] = await Promise.all([
+  const [members, stats] = await Promise.all([
     getGroupMembers(groupId),
-    getMemberCompletedDays(groupId),
+    getMemberLogStats(groupId),
   ]);
-  const result = await Promise.all(
-    members.map(async (m) => ({
-      user_id: m.user_id,
-      todayCompleted: await hasLoggedToday(groupId, m.user_id).catch(() => false),
-      completedDays: completedDaysMap[m.user_id],
-    }))
-  );
+  return members.map((m) => ({
+    user_id: m.user_id,
+    todayCompleted: stats.todayCompleted[m.user_id] ?? false,
+    completedDays: stats.completedDays[m.user_id],
+  }));
+}
+
+/** 여러 모임의 멤버 진척도를 쿼리 2회로 한 번에 조회 */
+export async function getMultiGroupMemberProgress(
+  groupIds: string[]
+): Promise<Record<string, { user_id: string; todayCompleted: boolean; completedDays?: number }[]>> {
+  if (groupIds.length === 0) return {};
+
+  const { start, end } = getTodayLocalRangeISO();
+  const todayStart = new Date(start).getTime();
+  const todayEnd = new Date(end).getTime();
+
+  const [membersResult, logsResult] = await Promise.all([
+    supabase.from('group_members').select('group_id, user_id').in('group_id', groupIds),
+    supabase.from('reading_logs').select('group_id, user_id, logged_at').in('group_id', groupIds),
+  ]);
+
+  // 로그 집계
+  const completedDates: Record<string, Record<string, Set<string>>> = {};
+  const todayDone: Record<string, Record<string, boolean>> = {};
+
+  for (const row of (logsResult.data ?? []) as { group_id: string; user_id: string; logged_at: string }[]) {
+    if (!completedDates[row.group_id]) completedDates[row.group_id] = {};
+    if (!completedDates[row.group_id][row.user_id]) completedDates[row.group_id][row.user_id] = new Set();
+    completedDates[row.group_id][row.user_id].add(toLocalDateString(row.logged_at));
+    const t = new Date(row.logged_at).getTime();
+    if (t >= todayStart && t <= todayEnd) {
+      if (!todayDone[row.group_id]) todayDone[row.group_id] = {};
+      todayDone[row.group_id][row.user_id] = true;
+    }
+  }
+
+  // 멤버별 그룹핑
+  const membersByGroup: Record<string, string[]> = {};
+  for (const row of (membersResult.data ?? []) as { group_id: string; user_id: string }[]) {
+    if (!membersByGroup[row.group_id]) membersByGroup[row.group_id] = [];
+    membersByGroup[row.group_id].push(row.user_id);
+  }
+
+  const result: Record<string, { user_id: string; todayCompleted: boolean; completedDays?: number }[]> = {};
+  for (const groupId of groupIds) {
+    result[groupId] = (membersByGroup[groupId] ?? []).map((uid) => ({
+      user_id: uid,
+      todayCompleted: todayDone[groupId]?.[uid] ?? false,
+      completedDays: completedDates[groupId]?.[uid]?.size,
+    }));
+  }
   return result;
 }
 

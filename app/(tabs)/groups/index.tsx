@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -39,7 +39,12 @@ export default function GroupsListScreen() {
   const [joining, setJoining] = useState(false);
   const [loadError, setLoadError] = useState(false);
 
+  const mountedRef = useRef(false);
+  const lastFetchRef = useRef(0);
+  const STALE_MS = 30_000;
+
   const load = useCallback(async () => {
+    lastFetchRef.current = Date.now();
     setLoadError(false);
     try {
       const user = await ensureAnonymousUser().catch(() => null) ?? await getCurrentUser().catch(() => null);
@@ -66,15 +71,15 @@ export default function GroupsListScreen() {
   }, []);
 
   useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; return; }
     load();
-  }, [load]);
-
-  useEffect(() => {
-    load();
-  }, [load, refreshKey]);
+  }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useFocusEffect(
     useCallback(() => {
+      const now = Date.now();
+      if (now - lastFetchRef.current < STALE_MS) return;
+      lastFetchRef.current = now;
       load();
     }, [load])
   );
