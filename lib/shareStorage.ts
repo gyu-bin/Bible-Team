@@ -132,7 +132,7 @@ export async function getShareCounts(): Promise<{
 /** 나눔 글 작성 (내용 + 선택한 모임 + 선택 사진). 세션 있으면 서버, 없으면 기기 로컬 */
 export async function addSharePost(
   content: string,
-  options?: { groupId?: string | null; groupTitle?: string | null; imageUrl?: string | null }
+  options?: { groupId?: string | null; groupTitle?: string | null; imageUrl?: string | null; postType?: 'share' | 'prayer' }
 ): Promise<SharePost> {
   const authorNickname = (await getNickname()) || '익명';
   const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
@@ -154,6 +154,7 @@ export async function addSharePost(
     groupId: options?.groupId ?? null,
     groupTitle: options?.groupTitle ?? null,
     imageUrl: options?.imageUrl ?? null,
+    postType: options?.postType ?? 'share',
   };
   const posts = await getStoredPosts();
   await setStoredPosts([post, ...posts]);

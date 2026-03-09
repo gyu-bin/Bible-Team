@@ -69,6 +69,7 @@ export default function ShareListScreen() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [likeCountByPost, setLikeCountByPost] = useState<Record<string, number>>({});
   const [commentCountByPost, setCommentCountByPost] = useState<Record<string, number>>({});
+  const [activeTab, setActiveTab] = useState<'share' | 'prayer'>('share');
   const [filterGroupId, setFilterGroupId] = useState<string | null>(null);
   const [filterGroups, setFilterGroups] = useState<{ id: string; title: string }[]>([]);
   const [groupsLoaded, setGroupsLoaded] = useState(false);
@@ -194,12 +195,13 @@ export default function ShareListScreen() {
   }, [params.groupId]);
 
   const myGroupIds = filterGroups.map((g) => g.id);
-  const filteredPosts =
+  const groupFilteredPosts =
     filterGroupId !== null
       ? posts.filter((p) => p.groupId === filterGroupId)
       : !groupsLoaded
         ? posts
         : posts.filter((p) => p.groupId == null || myGroupIds.includes(p.groupId));
+  const filteredPosts = groupFilteredPosts.filter((p) => (p.postType ?? 'share') === activeTab);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -339,6 +341,20 @@ export default function ShareListScreen() {
         <Text style={[styles.title, { fontSize: s(20) }]}>나눔 💬</Text>
         <Text style={[styles.subtitle, { fontSize: s(13) }]}>읽은 말씀을 나눠보세요</Text>
       </View>
+      <View style={styles.tabBar}>
+        <TouchableOpacity
+          style={[styles.tabItem, activeTab === 'share' && styles.tabItemActive]}
+          onPress={() => setActiveTab('share')}
+        >
+          <Text style={[styles.tabText, { fontSize: s(15) }, activeTab === 'share' && styles.tabTextActive]}>📖 나눔</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tabItem, activeTab === 'prayer' && styles.tabItemActive]}
+          onPress={() => setActiveTab('prayer')}
+        >
+          <Text style={[styles.tabText, { fontSize: s(15) }, activeTab === 'prayer' && styles.tabTextActive]}>🙏 기도 제목</Text>
+        </TouchableOpacity>
+      </View>
       <View style={styles.filterRow}>
         {filterGroups.length > 0 && (
           <>
@@ -372,9 +388,13 @@ export default function ShareListScreen() {
         {filteredPosts.length === 0 ? (
           <View style={styles.empty}>
             <Text style={[styles.emptyText, { fontSize: s(15) }]}>
-              {filterGroupId ? '이 모임 나눔 글이 없어요' : filterGroups.length === 0 ? '참여 중인 모임이 없어요' : '내 모임 나눔 글이 없어요'}
+              {activeTab === 'prayer'
+                ? filterGroupId ? '이 모임 기도 제목이 없어요' : '아직 기도 제목이 없어요'
+                : filterGroupId ? '이 모임 나눔 글이 없어요' : filterGroups.length === 0 ? '참여 중인 모임이 없어요' : '내 모임 나눔 글이 없어요'}
             </Text>
-            <Text style={[styles.emptySub, { fontSize: s(13) }]}>첫 번째로 글을 남겨보세요!</Text>
+            <Text style={[styles.emptySub, { fontSize: s(13) }]}>
+              {activeTab === 'prayer' ? '기도 제목을 나눠보세요 🙏' : '첫 번째로 글을 남겨보세요!'}
+            </Text>
           </View>
         ) : (
           filteredPosts.map((post) => {
@@ -470,7 +490,9 @@ export default function ShareListScreen() {
                 <Ionicons name="close" size={s(24)} color={theme.primary} />
                 <Text style={[styles.closeButtonText, { fontSize: s(15), color: theme.primary }]}>닫기</Text>
               </TouchableOpacity>
-              <Text style={[styles.modalTitle, { fontSize: s(17), color: theme.text }]}>나눔</Text>
+              <Text style={[styles.modalTitle, { fontSize: s(17), color: theme.text }]}>
+                {detailPost?.postType === 'prayer' ? '기도 제목' : '나눔'}
+              </Text>
               <View style={styles.closeButton} />
             </View>
             {detailPost && (
@@ -510,7 +532,7 @@ export default function ShareListScreen() {
                           color={currentUserId && detailLikes.includes(currentUserId) ? theme.primary : theme.textSecondary}
                         />
                         <Text style={[styles.detailLikeText, { fontSize: s(13), color: theme.textSecondary }]}>
-                          {detailLikes.length}
+                          {detailPost.postType === 'prayer' ? '기도했어요 🙏' : ''}{detailLikes.length}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -639,6 +661,19 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
   title: { fontWeight: '700', color: lightTheme.text },
   subtitle: { color: lightTheme.textSecondary, marginTop: 4 },
+  tabBar: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 4 },
+  tabItem: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabItemActive: {
+    borderBottomColor: lightTheme.primary,
+  },
+  tabText: { color: lightTheme.textSecondary, fontWeight: '600' },
+  tabTextActive: { color: lightTheme.primary },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingBottom: 5 },
   filterChip: {
     paddingVertical: 6,

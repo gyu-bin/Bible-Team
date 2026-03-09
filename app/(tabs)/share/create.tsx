@@ -44,6 +44,7 @@ export default function ShareCreateScreen() {
   const [showGroupPicker, setShowGroupPicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [groups, setGroups] = useState<ReadingGroupRow[]>([]);
+  const [postType, setPostType] = useState<'share' | 'prayer'>('share');
 
   useEffect(() => {
     if (params.groupId) {
@@ -142,6 +143,7 @@ export default function ShareCreateScreen() {
         groupId: groupId ?? undefined,
         groupTitle: groupTitle ?? undefined,
         imageUrl: imageUrl ?? undefined,
+        postType,
       });
       setPendingNewPost(newPost);
       invalidate();
@@ -247,6 +249,19 @@ export default function ShareCreateScreen() {
         </View>
 
         <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={{ flexDirection: 'row', marginBottom: 16, gap: 8 }}>
+            {(['share', 'prayer'] as const).map((type) => (
+              <TouchableOpacity
+                key={type}
+                onPress={() => setPostType(type)}
+                style={[styles.typeChip, { backgroundColor: postType === type ? theme.primary : theme.bgSecondary }]}
+              >
+                <Text style={{ fontSize: s(14), fontWeight: '600', color: postType === type ? '#FFF' : theme.textSecondary }}>
+                  {type === 'share' ? '📖 나눔' : '🙏 기도 제목'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
           <Text style={[styles.inputLabel, { fontSize: s(15), color: theme.text }]}>내용</Text>
           <TextInput
             style={[styles.input, { fontSize: s(16), color: theme.text, backgroundColor: theme.bg, borderColor: theme.border }]}
@@ -414,4 +429,5 @@ const styles = StyleSheet.create({
     borderBottomColor: lightTheme.border,
   },
   pickerRowText: { color: lightTheme.text },
+  typeChip: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20 },
 });

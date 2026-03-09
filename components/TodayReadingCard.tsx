@@ -25,6 +25,7 @@ interface TodayReadingCardProps {
   onCollapse?: () => void;
   /** 미완료 멤버에게 리마인드 푸시 보내기 (toUserId 전달) */
   onSendReminder?: (toUserId: string) => void;
+  onNextGroup?: () => void;
   memberProgress?: MemberProgressItem[];
   /** user_id → 닉네임 (서버 profiles). 있으면 함께 읽는 사람들에 닉네임 표시 */
   memberNicknames?: Record<string, string>;
@@ -43,6 +44,7 @@ export function TodayReadingCard({
   onPress,
   onCollapse,
   onSendReminder,
+  onNextGroup,
   memberProgress = [],
   memberNicknames,
   currentUserId,
@@ -136,6 +138,23 @@ export function TodayReadingCard({
           ))}
         </View>
       )}
+      {(() => {
+        const remainingDays = totalDays - (dayIndex + 1);
+        if (remainingDays > 0 && remainingDays <= 5 && onNextGroup) {
+          return (
+            <TouchableOpacity
+              style={[styles.nextGroupBanner, { backgroundColor: '#F59E0B22', borderColor: '#F59E0B' }]}
+              onPress={onNextGroup}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.nextGroupBannerText, { fontSize: s(13), color: '#B45309' }]}>
+                🔥 {remainingDays}일 후 완독! 다음 모임도 함께 읽어요 →
+              </Text>
+            </TouchableOpacity>
+          );
+        }
+        return null;
+      })()}
       {!isLoggedToday ? (
         <TouchableOpacity
           style={[styles.completeButton, { backgroundColor: theme.primary }]}
@@ -232,4 +251,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  nextGroupBanner: { borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, alignItems: 'center' },
+  nextGroupBannerText: { fontWeight: '600' },
 });

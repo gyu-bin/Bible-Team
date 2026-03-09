@@ -75,3 +75,39 @@ export async function scheduleDailyReminder(hour: number, minute: number): Promi
 export async function cancelAllReminders(): Promise<void> {
   await Notifications.cancelAllScheduledNotificationsAsync();
 }
+
+/** 오늘 읽기 완료 시 호출 - 당일 알림 아직 안 울렸으면 오늘 건너뛰고 내일부터 재시작 */
+export async function cancelTodayReminderOnComplete(): Promise<void> {
+  try {
+    const time = await getStoredReminderTime();
+    const now = new Date();
+    const todayReminderPassed =
+      now.getHours() > time.hour ||
+      (now.getHours() === time.hour && now.getMinutes() >= time.minute);
+
+    if (todayReminderPassed) {
+      // 오늘 알림이 이미 지났으면 → 기존 daily 그대로 유지 (내일 자동으로 울림)
+      return;
+    }
+
+    // 오늘 알림이 아직 안 울렸으면 → 취소 후 내일 날짜 one-time으로 등록
+    // (앱 다음 실행 시 settings.tsx에서 scheduleDailyReminder가 daily로 복원됨)
+    await Notifications.cancelAllScheduledNotificationsAsync();
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(time.hour, time.minute, 0, 0);
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: '오늘의 읽기',
+        body: '오늘도 말씀 읽기 어떠세요?',
+        data: { type: 'reminder' },
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: tomorrow,
+      },
+    });
+  } catch {
+    // ignore
+  }
+}

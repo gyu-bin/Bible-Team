@@ -10,6 +10,7 @@ type SharePostRow = {
   group_id: string | null;
   group_title: string | null;
   image_url?: string | null;
+  post_type?: string;
 };
 
 type ShareCommentRow = {
@@ -31,6 +32,7 @@ function toSharePost(r: SharePostRow): SharePost {
     groupId: r.group_id ?? null,
     groupTitle: r.group_title ?? null,
     imageUrl: r.image_url ?? null,
+    postType: (r.post_type === 'prayer' ? 'prayer' : 'share') as 'share' | 'prayer',
   };
 }
 
@@ -63,7 +65,7 @@ export async function addSharePostToServer(
   authorId: string,
   authorNickname: string,
   content: string,
-  options?: { groupId?: string | null; groupTitle?: string | null; imageUrl?: string | null }
+  options?: { groupId?: string | null; groupTitle?: string | null; imageUrl?: string | null; postType?: 'share' | 'prayer' }
 ): Promise<SharePost> {
   const row: Record<string, unknown> = {
     author_id: authorId,
@@ -71,12 +73,13 @@ export async function addSharePostToServer(
     content: content.trim(),
     group_id: options?.groupId ?? null,
     group_title: options?.groupTitle ?? null,
+    post_type: options?.postType ?? 'share',
   };
   if (options?.imageUrl != null && options.imageUrl !== '') row.image_url = options.imageUrl;
   const { data, error } = await supabase
     .from('share_posts')
     .insert(row)
-    .select('id, author_id, author_nickname, content, created_at, group_id, group_title')
+    .select('id, author_id, author_nickname, content, created_at, group_id, group_title, post_type')
     .single();
   if (error) throw error;
   const thin = data as Omit<SharePostRow, 'image_url'>;

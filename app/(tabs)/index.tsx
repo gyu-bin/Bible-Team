@@ -1,13 +1,15 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Animated } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Animated, Modal, TextInput, Alert } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getMyGroups } from '@/services/groupService';
 import { hasLoggedToday, logChapters, deleteTodayLogs, getGroupMemberProgress, getMyLoggedDates, getConsecutiveDays, getThisWeekCompletedCount } from '@/services/readingLogService';
 import { getNicknamesByUserIds } from '@/services/profileService';
-// import { sendReminderPush } from '@/services/reminderPushService'; // 리마인드(미완료 푸시) 기능
+import { sendReminderPush } from '@/services/reminderPushService';
 import { getCachedGroups, getCachedLoggedToday, setCachedGroups, setCachedLoggedToday, setCachedLoggedTodayGroup, getLocalGroups, isLocalUserId, getOrCreateLocalUserId, getNickname } from '@/lib/cache';
 import { getTodayChapters } from '@/constants/bibleBooks';
+import { cancelTodayReminderOnComplete } from '@/lib/reminderNotifications';
+import { addSharePost } from '@/lib/shareStorage';
 import { TodayReadingCard, type MemberProgressItem } from '@/components/TodayReadingCard';
 import { EmptyState } from '@/components/EmptyState';
 import { OnboardingModal, hasSeenOnboarding } from '@/components/OnboardingModal';
@@ -57,6 +59,10 @@ export default function HomeScreen() {
   const [consecutiveDays, setConsecutiveDays] = useState(0);
   const [thisWeekCount, setThisWeekCount] = useState(0);
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<Record<string, boolean>>({});
+  const [meditationModal, setMeditationModal] = useState<{ group: ReadingGroupRow; readingText: string } | null>(null);
+  const [meditationInput, setMeditationInput] = useState('');
+  const [meditationSubmitting, setMeditationSubmitting] = useState(false);
+  const [completionCelebration, setCompletionCelebration] = useState<ReadingGroupRow | null>(null);
 
   const load = useCallback(async () => {
     setLoadError(false);
@@ -262,6 +268,17 @@ export default function HomeScreen() {
             setTimeout(() => setMilestoneToast(null), 4000);
           }
         }
+        cancelTodayReminderOnComplete().catch(() => {});
+        // 묵상 팝업 - 2초 딜레이 후 열기 (완료 토스트 보여준 후)
+        const todayChaptersForModal = getTodayChapters(group.start_book, group.pages_per_day, dayIndex);
+        const readingLabel = todayChaptersForModal.length > 0
+          ? todayChaptersForModal.map(r => r.fromChapter === r.toChapter ? `${r.book} ${r.fromChapter}장` : `${r.book} ${r.fromChapter}~${r.toChapter}장`).join(', ')
+          : `${group.start_book}`;
+        setTimeout(() => setMeditationModal({ group, readingText: readingLabel }), 2000);
+        // 완독 축하 모달
+        if (dayIndex >= group.duration_days - 1) {
+          setTimeout(() => setCompletionCelebration(group), 1500);
+        }
         setCompleteToast(group.title);
         setTimeout(() => setCompleteToast(null), 2800);
       }
@@ -435,6 +452,34 @@ export default function HomeScreen() {
               memberNicknames={memberNicknames}
               currentUserId={userId ?? undefined}
               currentUserNickname={myNickname || undefined}
+              onSendReminder={(toUserId: string) => {
+                if (!userId || isLocalUserId(userId)) return;
+                const name = memberNicknames[toUserId] || '이 멤버';
+                Alert.alert(
+                  '응원 보내기 📣',
+                  `${name}에게 오늘 읽기 리마인드를 보낼까요?`,
+                  [
+                    { text: '취소', style: 'cancel' },
+                    {
+                      text: '보내기',
+                      onPress: async () => {
+                        const result = await sendReminderPush(toUserId, group.id, myNickname || '모임원');
+                        if ('ok' in result) {
+                          setCompleteToast('응원 메시지를 보냈어요 💌');
+                          setTimeout(() => setCompleteToast(null), 2200);
+                        } else if (result.error === 'already_sent_today') {
+                          Alert.alert('이미 보냈어요', '오늘 이미 응원을 보낸 멤버예요.');
+                        } else if (result.error === 'no_push_token') {
+                          Alert.alert('알림 불가', '이 멤버는 앱 알림을 허용하지 않았어요.');
+                        } else {
+                          Alert.alert('오류', '응원 전송에 실패했어요.');
+                        }
+                      },
+                    },
+                  ]
+                );
+              }}
+              onNextGroup={() => router.push({ pathname: '/(tabs)/groups', params: { action: 'create' } })}
             />
           );
         })}
@@ -461,6 +506,99 @@ export default function HomeScreen() {
           </TouchableOpacity>
         )}
       </ScrollView>
+      {meditationModal && (
+        <Modal
+          visible
+          transparent
+          animationType="slide"
+          onRequestClose={() => setMeditationModal(null)}
+        >
+          <View style={styles.meditationOverlay}>
+            <View style={[styles.meditationBox, { backgroundColor: theme.card }]}>
+              <Text style={[styles.meditationTitle, { color: theme.text, fontSize: s(17) }]}>오늘의 묵상 ✍️</Text>
+              <Text style={[styles.meditationSub, { color: theme.textSecondary, fontSize: s(13) }]}>
+                {meditationModal.readingText}
+              </Text>
+              <TextInput
+                style={[styles.meditationInput, { backgroundColor: theme.bgSecondary, color: theme.text, fontSize: s(15) }]}
+                placeholder="오늘 말씀에서 느낀 점을 한 줄로..."
+                placeholderTextColor={theme.textSecondary}
+                value={meditationInput}
+                onChangeText={setMeditationInput}
+                multiline
+                autoFocus
+                maxLength={200}
+              />
+              <View style={styles.meditationButtons}>
+                <TouchableOpacity
+                  style={[styles.meditationSkip, { borderColor: theme.border }]}
+                  onPress={() => { setMeditationModal(null); setMeditationInput(''); }}
+                >
+                  <Text style={[{ fontSize: s(14), color: theme.textSecondary }]}>건너뛰기</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.meditationSubmit, { backgroundColor: meditationInput.trim() ? theme.primary : theme.bgSecondary }, meditationSubmitting && { opacity: 0.6 }]}
+                  disabled={!meditationInput.trim() || meditationSubmitting}
+                  onPress={async () => {
+                    if (!meditationInput.trim() || meditationSubmitting) return;
+                    setMeditationSubmitting(true);
+                    try {
+                      await addSharePost(meditationInput.trim(), {
+                        groupId: meditationModal.group.id,
+                        groupTitle: meditationModal.group.title,
+                      });
+                    } catch (e) {
+                      console.error(e);
+                    } finally {
+                      setMeditationSubmitting(false);
+                      setMeditationModal(null);
+                      setMeditationInput('');
+                    }
+                  }}
+                >
+                  <Text style={[{ fontSize: s(14), fontWeight: '600', color: meditationInput.trim() ? '#FFF' : theme.textSecondary }]}>
+                    {meditationSubmitting ? '저장 중...' : '나눔에 올리기'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+      {completionCelebration && (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setCompletionCelebration(null)}>
+          <View style={styles.celebrationOverlay}>
+            <View style={[styles.celebrationBox, { backgroundColor: theme.card }]}>
+              <Text style={styles.celebrationEmoji}>🎉</Text>
+              <Text style={[styles.celebrationTitle, { color: theme.text, fontSize: s(20) }]}>
+                완독 달성!
+              </Text>
+              <Text style={[styles.celebrationSub, { color: theme.textSecondary, fontSize: s(14) }]}>
+                "{completionCelebration.title}" 모임을{'\n'}{completionCelebration.duration_days}일 동안 완주했어요!
+              </Text>
+              <View style={styles.celebrationButtons}>
+                <TouchableOpacity
+                  style={[styles.celebrationShareBtn, { backgroundColor: theme.primary }]}
+                  onPress={async () => {
+                    const { Share } = require('react-native');
+                    const msg = `📖 "${completionCelebration.title}" 성경 읽기 모임을 ${completionCelebration.duration_days}일 동안 완주했어요!\n바이블 크루와 함께라면 할 수 있어요 🙌`;
+                    Share.share({ message: msg }).catch(() => {});
+                    setCompletionCelebration(null);
+                  }}
+                >
+                  <Text style={{ fontSize: s(15), fontWeight: '700', color: '#FFF' }}>완독 자랑하기 📣</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.celebrationDoneBtn]}
+                  onPress={() => setCompletionCelebration(null)}
+                >
+                  <Text style={[{ fontSize: s(14), color: theme.textSecondary }]}>닫기</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
       {milestoneToast ? (
         <View style={[styles.milestoneToast, { backgroundColor: '#F59E0B' }]} pointerEvents="none">
           <Text style={styles.milestoneToastEmoji}>
@@ -580,4 +718,20 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   retryButtonText: { fontSize: 16, fontWeight: '600', color: '#FFF' },
+  meditationOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  meditationBox: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
+  meditationTitle: { fontWeight: '700', marginBottom: 4 },
+  meditationSub: { marginBottom: 16 },
+  meditationInput: { borderRadius: 12, padding: 14, minHeight: 80, textAlignVertical: 'top', marginBottom: 16 },
+  meditationButtons: { flexDirection: 'row', gap: 12 },
+  meditationSkip: { flex: 1, paddingVertical: 14, borderRadius: 16, alignItems: 'center', borderWidth: 1 },
+  meditationSubmit: { flex: 2, paddingVertical: 14, borderRadius: 16, alignItems: 'center' },
+  celebrationOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 32 },
+  celebrationBox: { borderRadius: 24, padding: 28, alignItems: 'center', width: '100%' },
+  celebrationEmoji: { fontSize: 60, marginBottom: 12 },
+  celebrationTitle: { fontWeight: '800', marginBottom: 8 },
+  celebrationSub: { textAlign: 'center', lineHeight: 22, marginBottom: 24 },
+  celebrationButtons: { width: '100%', gap: 10 },
+  celebrationShareBtn: { paddingVertical: 16, borderRadius: 20, alignItems: 'center' },
+  celebrationDoneBtn: { paddingVertical: 12, alignItems: 'center' },
 });

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { ensureAnonymousUser } from '@/lib/supabase';
+import { registerPushToken } from '@/lib/pushNotifications';
 import { FontSizeProvider } from '@/contexts/FontSizeContext';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { DataRefreshProvider } from '@/contexts/DataRefreshContext';
@@ -11,7 +12,10 @@ export default function RootLayout() {
 
   useEffect(() => {
     ensureAnonymousUser()
-      .then(() => setReady(true))
+      .then(() => {
+        registerPushToken().catch(() => {});
+        setReady(true);
+      })
       .catch(() => setReady(true));
   }, []);
 
