@@ -15,7 +15,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getGroupById, getGroupMembers, joinGroup, isMember, leaveGroup, deleteGroup } from '@/services/groupService';
-import { getGroupWeeklyParticipation } from '@/services/readingLogService';
+import { getGroupMemberProgress } from '@/services/readingLogService';
 import type { ReadingGroupRow } from '@/types/database';
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getCachedGroups, setCachedGroups, getLocalGroupById, isLocalUserId, getNickname, removeGroupFromMyCache, deleteLocalGroup, getOrCreateLocalUserId } from '@/lib/cache';
@@ -45,7 +45,7 @@ export default function GroupDetailScreen() {
   const [leaving, setLeaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [weeklyStats, setWeeklyStats] = useState<{ totalMembers: number; activeThisWeek: number; memberWeeklyDays: Record<string, number> } | null>(null);
+  const [todayProgress, setTodayProgress] = useState<{ user_id: string; todayCompleted: boolean }[] | null>(null);
 
   const isLocalGroup = typeof id === 'string' && (id.startsWith('local_') || isLocalUserId(id));
 
@@ -83,12 +83,12 @@ export default function GroupDetailScreen() {
             setAlreadyMember(member);
             const list = await getGroupMembers(groupData.id);
             setMembers(list);
-            const [nickMap, stats] = await Promise.all([
+            const [nickMap, progress] = await Promise.all([
               getNicknamesByUserIds(list.map((m) => m.user_id)).catch(() => ({})),
-              getGroupWeeklyParticipation(groupData.id).catch(() => null),
+              getGroupMemberProgress(groupData.id).catch(() => []),
             ]);
             setMemberNicknames(nickMap);
-            if (stats) setWeeklyStats({ ...stats, totalMembers: list.length });
+            setTodayProgress(progress.map((p) => ({ user_id: p.user_id, todayCompleted: p.todayCompleted })));
           }
         } else if (groupData && isLocalGroup) {
           setAlreadyMember(true);
@@ -97,13 +97,13 @@ export default function GroupDetailScreen() {
           }
         } else if (groupData && !isLocalGroup) {
           const list = await getGroupMembers(groupData.id);
-          const [nickMap, stats] = await Promise.all([
+          const [nickMap, progress] = await Promise.all([
             getNicknamesByUserIds(list.map((m) => m.user_id)).catch(() => ({})),
-            getGroupWeeklyParticipation(groupData.id).catch(() => null),
+            getGroupMemberProgress(groupData.id).catch(() => []),
           ]);
           setMembers(list);
           setMemberNicknames(nickMap);
-          if (stats) setWeeklyStats({ ...stats, totalMembers: list.length });
+          setTodayProgress(progress.map((p) => ({ user_id: p.user_id, todayCompleted: p.todayCompleted })));
         }
       } catch (e) {
         console.error(e);
@@ -302,28 +302,27 @@ export default function GroupDetailScreen() {
             <Text style={[styles.descriptionText, { fontSize: s(15), color: theme.text }]}>{description}</Text>
           </View>
         ) : null}
-        {weeklyStats && members.length > 0 && (
+        {todayProgress && todayProgress.length > 0 && (
           <View style={[styles.memberSection, { borderTopColor: theme.border }]}>
-            <Text style={[styles.memberSectionTitle, { fontSize: s(13), color: theme.textSecondary }]}>이번 주 참여 현황</Text>
+            <Text style={[styles.memberSectionTitle, { fontSize: s(13), color: theme.textSecondary }]}>오늘 참여 현황</Text>
             <View style={[styles.statsRow, { backgroundColor: theme.bgSecondary }]}>
               <Text style={[styles.statsMainText, { fontSize: s(16), color: theme.text }]}>
-                {weeklyStats.activeThisWeek}
-                <Text style={{ color: theme.textSecondary, fontWeight: '400' }}>/{members.length}명</Text>
+                {todayProgress.filter((p) => p.todayCompleted).length}
+                <Text style={{ color: theme.textSecondary, fontWeight: '400' }}>/{todayProgress.length}명</Text>
               </Text>
               <Text style={[styles.statsSubText, { fontSize: s(13), color: theme.textSecondary }]}>
-                이번 주에 읽었어요
+                오늘 읽었어요
               </Text>
             </View>
-            {members.map((m, i) => {
-              const days = weeklyStats.memberWeeklyDays[m.user_id] ?? 0;
-              const displayName = currentUserId === m.user_id
-                ? (myNickname || memberNicknames[m.user_id] || '나')
-                : (memberNicknames[m.user_id] || `멤버 ${i + 1}`);
+            {todayProgress.map((p, i) => {
+              const displayName = currentUserId === p.user_id
+                ? (myNickname || memberNicknames[p.user_id] || '나')
+                : (memberNicknames[p.user_id] || `멤버 ${i + 1}`);
               return (
-                <View key={m.user_id} style={styles.statsMemberRow}>
+                <View key={p.user_id} style={styles.statsMemberRow}>
                   <Text style={[styles.statsMemberName, { fontSize: s(14), color: theme.text }]}>{displayName}</Text>
-                  <Text style={[styles.statsMemberDays, { fontSize: s(13), color: days > 0 ? theme.primary : theme.textSecondary }]}>
-                    {days > 0 ? `${days}일 읽음` : '이번 주 아직'}
+                  <Text style={[styles.statsMemberDays, { fontSize: s(13), color: p.todayCompleted ? theme.doneText : theme.textSecondary }]}>
+                    {p.todayCompleted ? '✓ 오늘 완료' : '○ 아직'}
                   </Text>
                 </View>
               );

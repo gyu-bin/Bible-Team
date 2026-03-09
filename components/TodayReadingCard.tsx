@@ -8,7 +8,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 export interface MemberProgressItem {
   user_id: string;
   todayCompleted: boolean;
-  /** 완료한 일수 (진척도). 있으면 N일차/전체 표시 */
+  /** 완료한 일수 (읽기 진척도). 'N일 완료 / 전체' 표시에 사용 */
   completedDays?: number;
 }
 
@@ -120,7 +120,7 @@ export function TodayReadingCard({
               {totalDays > 0 && (
                 <View style={styles.memberProgressBarRow}>
                   <Text style={[styles.memberDayText, { fontSize: s(11), color: theme.textSecondary }]}>
-                    {(mp.completedDays ?? 0)}일차 / {totalDays}일
+                    {(mp.completedDays ?? 0)}일 완료 / {totalDays}일
                   </Text>
                   <View style={{ flex: 1 }}>
                     <ProgressBar

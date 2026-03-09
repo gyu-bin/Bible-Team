@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Animated } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getMyGroups } from '@/services/groupService';
@@ -50,6 +50,8 @@ export default function HomeScreen() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [completeToast, setCompleteToast] = useState<string | null>(null);
+  const completeToastScale = useRef(new Animated.Value(1)).current;
+  const completeToastOpacity = useRef(new Animated.Value(1)).current;
   const [milestoneToast, setMilestoneToast] = useState<number | null>(null);
   const [completedCollapsed, setCompletedCollapsed] = useState(true);
   const [consecutiveDays, setConsecutiveDays] = useState(0);
@@ -154,6 +156,33 @@ export default function HomeScreen() {
     }
   }, [loading, groups.length]);
 
+  useEffect(() => {
+    if (!completeToast) return;
+    completeToastScale.setValue(0.5);
+    completeToastOpacity.setValue(0);
+    Animated.sequence([
+      Animated.parallel([
+        Animated.spring(completeToastScale, {
+          toValue: 1.15,
+          useNativeDriver: true,
+          friction: 6,
+          tension: 200,
+        }),
+        Animated.timing(completeToastOpacity, {
+          toValue: 1,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.spring(completeToastScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        friction: 8,
+        tension: 100,
+      }),
+    ]).start();
+  }, [completeToast, completeToastScale, completeToastOpacity]);
+
   const handleUndoComplete = async (group: ReadingGroupRow) => {
     const uid = userId ?? (await ensureAnonymousUser().catch(() => null))?.id ?? (await getOrCreateLocalUserId().catch(() => null));
     const isLocal = !uid || isLocalUserId(uid) || group.id.startsWith('local_');
@@ -199,7 +228,7 @@ export default function HomeScreen() {
           }));
         }
         setCompleteToast(group.title);
-        setTimeout(() => setCompleteToast(null), 2200);
+        setTimeout(() => setCompleteToast(null), 2800);
         setCompletingId(null);
         return;
       }
@@ -234,7 +263,7 @@ export default function HomeScreen() {
           }
         }
         setCompleteToast(group.title);
-        setTimeout(() => setCompleteToast(null), 2200);
+        setTimeout(() => setCompleteToast(null), 2800);
       }
     } catch (e) {
       console.error(e);
@@ -442,9 +471,21 @@ export default function HomeScreen() {
           </Text>
         </View>
       ) : completeToast ? (
-        <View style={[styles.toast, { backgroundColor: theme.primary }]} pointerEvents="none">
-          <Text style={styles.toastText}>오늘 읽기 완료 ✨ · {completeToast}</Text>
-        </View>
+        <Animated.View
+          style={[
+            styles.completeToast,
+            {
+              backgroundColor: theme.primary,
+              transform: [{ scale: completeToastScale }],
+              opacity: completeToastOpacity,
+            },
+          ]}
+          pointerEvents="none"
+        >
+          <Text style={styles.completeToastEmoji}>🎉</Text>
+          <Text style={styles.completeToastText}>오늘 읽기 완료!</Text>
+          <Text style={styles.completeToastSub}>{completeToast}</Text>
+        </Animated.View>
       ) : null}
     </View>
   );
@@ -497,21 +538,24 @@ const styles = StyleSheet.create({
   },
   collapsedRowText: {},
   collapsedRowChevron: { fontWeight: '300' },
-  toast: {
+  completeToast: {
     position: 'absolute',
     bottom: 32,
     left: 20,
     right: 20,
-    paddingVertical: 14,
-    borderRadius: 20,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 24,
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 6,
   },
-  toastText: { fontSize: 15, fontWeight: '600', color: '#FFF' },
+  completeToastEmoji: { fontSize: 36, marginBottom: 4 },
+  completeToastText: { fontSize: 18, fontWeight: '700', color: '#FFF' },
+  completeToastSub: { fontSize: 14, color: 'rgba(255,255,255,0.95)', marginTop: 2 },
   milestoneToast: {
     position: 'absolute',
     bottom: 32,
