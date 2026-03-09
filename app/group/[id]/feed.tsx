@@ -142,16 +142,16 @@ export default function GroupFeedScreen() {
             >
               <View style={styles.cardHeaderRow}>
                 <Text style={[styles.cardNickname, { fontSize: s(13), color: theme.primary }]}>{displayName(post)}</Text>
-                <Text style={[styles.cardDate, { fontSize: s(12), color: theme.textSecondary }]}>{formatDate(post.createdAt)}</Text>
               </View>
               {post.imageUrl ? (
-                <Image source={{ uri: post.imageUrl }} style={styles.cardImage} resizeMode="cover" />
+                <Image source={{ uri: post.imageUrl }} style={[styles.cardImage, { marginBottom: 8 }]} resizeMode="cover" />
               ) : null}
               {post.content.trim() ? (
                 <Text style={[styles.cardContent, { fontSize: s(15), color: theme.text }]} numberOfLines={3}>
                   {post.content}
                 </Text>
               ) : null}
+              <Text style={[styles.cardDateBottom, { fontSize: s(12), color: theme.textSecondary }]}>{formatDate(post.createdAt)}</Text>
             </TouchableOpacity>
           ))
         )}
@@ -177,20 +177,25 @@ const styles = StyleSheet.create({
   title: { flex: 1, textAlign: 'center', fontWeight: '700' },
   addBtn: { minWidth: 44, alignItems: 'flex-end' },
   scroll: { flex: 1 },
-  scrollContent: { padding: 20, paddingTop: 16 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24 },
   hint: { marginBottom: 16 },
   empty: { alignItems: 'center', justifyContent: 'center', paddingVertical: 80 },
   emptyEmoji: { marginBottom: 16 },
   emptyTitle: { fontWeight: '600', marginBottom: 8 },
   emptySub: { textAlign: 'center' },
   card: {
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 20,
+    padding: 18,
     marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  cardHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  cardHeaderRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 },
   cardNickname: { fontWeight: '600' },
-  cardDate: {},
-  cardImage: { width: '100%', height: 200, borderRadius: 12, marginBottom: 8 },
-  cardContent: { lineHeight: 22 },
+  cardImage: { width: '100%', aspectRatio: 1, borderRadius: 12 },
+  cardContent: { lineHeight: 22, marginBottom: 8 },
+  cardDateBottom: { marginBottom: 8 },
 });

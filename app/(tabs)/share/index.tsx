@@ -460,71 +460,78 @@ export default function ShareListScreen() {
           keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
           <View style={[styles.detailModal, { backgroundColor: theme.bg }]}>
-            <View style={[styles.detailModalHeader, { backgroundColor: theme.card, paddingTop: Math.max(insets.top, 12), paddingBottom: 12 }]}>
+            <View style={[styles.detailModalHeader, { backgroundColor: theme.card, borderBottomColor: theme.border, paddingTop: Math.max(insets.top, 10), paddingBottom: 10 }]}>
               <TouchableOpacity
                 style={styles.closeButton}
                 onPress={() => setDetailPost(null)}
                 activeOpacity={0.7}
+                hitSlop={12}
               >
-                <Ionicons name="close" size={s(22)} color={theme.primary} />
-                <Text style={[styles.closeButtonText, { fontSize: s(16) }]}>닫기</Text>
+                <Ionicons name="close" size={s(24)} color={theme.primary} />
+                <Text style={[styles.closeButtonText, { fontSize: s(15), color: theme.primary }]}>닫기</Text>
               </TouchableOpacity>
-              <Text style={[styles.modalTitle, { fontSize: s(18) }]}>나눔</Text>
+              <Text style={[styles.modalTitle, { fontSize: s(17), color: theme.text }]}>나눔</Text>
               <View style={styles.closeButton} />
             </View>
             {detailPost && (
               <>
-                <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailScrollContent} keyboardShouldPersistTaps="handled">
-                  <View style={[styles.detailCard, { backgroundColor: theme.card }]}>
+                <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailScrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                  <View style={[styles.detailCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                     <View style={styles.detailHeaderRow}>
-                      <Text style={[styles.detailNickname, { fontSize: s(13) }]}>
+                      <Text style={[styles.detailNickname, { fontSize: s(13), color: theme.primary }]}>
                         {displayNickname(detailPost.authorId, detailPost.authorNickname)}
                       </Text>
                       {detailPost.groupId && (() => {
                         const currentName = filterGroups.find((g) => g.id === detailPost.groupId)?.title;
                         const displayName = currentName || detailPost.groupTitle || '';
                         return displayName ? (
-                          <Text style={[styles.detailGroupTag, { fontSize: s(12) }]}>{displayName}</Text>
+                          <Text style={[styles.detailGroupTag, { fontSize: s(11), color: theme.textSecondary }]} numberOfLines={1}>{displayName}</Text>
                         ) : null;
                       })()}
                     </View>
                     {detailPost.imageUrl ? (
-                      <Image source={{ uri: detailPost.imageUrl }} style={styles.detailImage} resizeMode="contain" />
+                      <Image
+                        source={{ uri: detailPost.imageUrl }}
+                        style={[styles.detailImage, { backgroundColor: theme.border }]}
+                        resizeMode="cover"
+                      />
                     ) : null}
                     {detailPost.content.trim() ? (
-                      <Text style={[styles.detailContent, { fontSize: s(15) }]}>{detailPost.content}</Text>
+                      <Text style={[styles.detailContent, { fontSize: s(15), color: theme.text }]}>{detailPost.content}</Text>
                     ) : null}
-                    <Text style={[styles.detailDate, { fontSize: s(12) }]}>
-                      {formatDate(detailPost.createdAt)}
-                    </Text>
-                    <TouchableOpacity style={styles.detailLikeRow} onPress={handleLike} activeOpacity={0.7}>
-                      <Ionicons
-                        name={currentUserId && detailLikes.includes(currentUserId) ? 'heart' : 'heart-outline'}
-                        size={s(22)}
-                        color={currentUserId && detailLikes.includes(currentUserId) ? theme.primary : theme.textSecondary}
-                      />
-                      <Text style={[styles.detailLikeText, { fontSize: s(14) }]}>
-                        {detailLikes.length}
+                    <View style={styles.detailMetaRow}>
+                      <Text style={[styles.detailDate, { fontSize: s(12), color: theme.textSecondary }]}>
+                        {formatDate(detailPost.createdAt)}
                       </Text>
-                    </TouchableOpacity>
+                      <TouchableOpacity style={styles.detailLikeRow} onPress={handleLike} activeOpacity={0.7}>
+                        <Ionicons
+                          name={currentUserId && detailLikes.includes(currentUserId) ? 'heart' : 'heart-outline'}
+                          size={s(20)}
+                          color={currentUserId && detailLikes.includes(currentUserId) ? theme.primary : theme.textSecondary}
+                        />
+                        <Text style={[styles.detailLikeText, { fontSize: s(13), color: theme.textSecondary }]}>
+                          {detailLikes.length}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                     {currentUserId === detailPost.authorId && (
                       <View style={styles.detailActionsRow}>
                         <TouchableOpacity style={styles.detailEditRow} onPress={openEditModal} activeOpacity={0.7}>
-                          <Ionicons name="pencil-outline" size={s(18)} color={theme.primary} />
-                          <Text style={[styles.detailEditText, { fontSize: s(14), color: theme.primary }]}>글 수정</Text>
+                          <Ionicons name="pencil-outline" size={s(16)} color={theme.primary} />
+                          <Text style={[styles.detailEditText, { fontSize: s(13), color: theme.primary }]}>수정</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.detailDeleteRow} onPress={handleDeletePost} activeOpacity={0.7}>
-                          <Ionicons name="trash-outline" size={s(18)} color="#DC2626" />
-                          <Text style={[styles.detailDeleteText, { fontSize: s(14) }]}>글 삭제</Text>
+                          <Ionicons name="trash-outline" size={s(16)} color="#DC2626" />
+                          <Text style={[styles.detailDeleteText, { fontSize: s(13) }]}>삭제</Text>
                         </TouchableOpacity>
                       </View>
                     )}
                   </View>
-                  <Text style={[styles.commentsTitle, { fontSize: s(14) }]}>댓글 ({detailComments.length})</Text>
+                  <Text style={[styles.commentsTitle, { fontSize: s(13), color: theme.textSecondary }]}>댓글 {detailComments.length}</Text>
                   {detailComments.map((c) => (
                     <View key={c.id} style={[styles.commentRow, { borderBottomColor: theme.border }]}>
                       <View style={styles.commentRowTop}>
-                        <Text style={[styles.commentNickname, { fontSize: s(13) }]}>{displayNickname(c.authorId, c.authorNickname)}</Text>
+                        <Text style={[styles.commentNickname, { fontSize: s(13), color: theme.primary }]}>{displayNickname(c.authorId, c.authorNickname)}</Text>
                         {currentUserId === c.authorId && (
                           <TouchableOpacity
                             onPress={() => handleDeleteComment(c)}
@@ -540,14 +547,14 @@ export default function ShareListScreen() {
                           </TouchableOpacity>
                         )}
                       </View>
-                      <Text style={[styles.commentContent, { fontSize: s(14) }]}>{c.content}</Text>
-                      <Text style={[styles.commentDate, { fontSize: s(11) }]}>{formatDate(c.createdAt)}</Text>
+                      <Text style={[styles.commentContent, { fontSize: s(14), color: theme.text }]}>{c.content}</Text>
+                      <Text style={[styles.commentDate, { fontSize: s(11), color: theme.textSecondary }]}>{formatDate(c.createdAt)}</Text>
                     </View>
                   ))}
                 </ScrollView>
-                <View style={[styles.commentInputRow, { borderTopColor: theme.border, paddingBottom: Math.max(insets.bottom, 12) }]}>
+                <View style={[styles.commentInputRow, { borderTopColor: theme.border, backgroundColor: theme.card, paddingBottom: Math.max(insets.bottom, 12) }]}>
                   <TextInput
-                    style={[styles.commentInput, { fontSize: s(15) }]}
+                    style={[styles.commentInput, { fontSize: s(15), backgroundColor: theme.bgSecondary, color: theme.text }]}
                     placeholder="댓글 입력..."
                     placeholderTextColor={theme.textSecondary}
                     value={detailCommentInput}
@@ -664,7 +671,7 @@ const styles = StyleSheet.create({
   },
   cardHeaderRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 },
   cardNickname: { fontWeight: '600', color: lightTheme.primary },
-  cardImage: { width: '100%', height: 200, borderRadius: 12 },
+  cardImage: { width: '100%', aspectRatio: 1, borderRadius: 12 },
   cardGroupTag: {
     marginLeft: 8,
     paddingHorizontal: 8,
@@ -724,32 +731,35 @@ const styles = StyleSheet.create({
   closeButtonText: { color: lightTheme.primary, fontWeight: '600', marginLeft: 6 },
   modalTitle: { fontWeight: '700', color: lightTheme.text },
   detailScroll: { flex: 1 },
-  detailScrollContent: { padding: 20, paddingBottom: 24 },
+  detailScrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 16 },
   detailCard: {
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 20,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
   },
-  detailHeaderRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 },
-  detailNickname: { fontWeight: '600', color: lightTheme.primary },
+  detailHeaderRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 },
+  detailNickname: { fontWeight: '600' },
   detailGroupTag: {
-    marginLeft: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    marginLeft: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     backgroundColor: lightTheme.bgSecondary,
-    borderRadius: 10,
-    color: lightTheme.textSecondary,
+    borderRadius: 8,
+    overflow: 'hidden',
+    maxWidth: 140,
   },
-  detailImage: { width: '100%', maxHeight: 400, borderRadius: 12, marginBottom: 12 },
-  detailContent: { color: lightTheme.text, lineHeight: 22, marginBottom: 8 },
-  detailDate: { color: lightTheme.textSecondary, marginBottom: 12 },
+  detailImage: { width: '100%', aspectRatio: 1, borderRadius: 12, marginBottom: 10 },
+  detailContent: { lineHeight: 22, marginBottom: 8 },
+  detailMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  detailDate: {},
   detailLikeRow: { flexDirection: 'row', alignItems: 'center' },
-  detailLikeText: { color: lightTheme.textSecondary, marginLeft: 6 },
-  detailActionsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 16 },
+  detailLikeText: { marginLeft: 4 },
+  detailActionsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 12 },
   detailEditRow: { flexDirection: 'row', alignItems: 'center' },
-  detailEditText: { marginLeft: 6 },
+  detailEditText: { marginLeft: 4 },
   detailDeleteRow: { flexDirection: 'row', alignItems: 'center' },
-  detailDeleteText: { color: '#DC2626', marginLeft: 6 },
+  detailDeleteText: { color: '#DC2626', marginLeft: 4 },
   commentRowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
   commentDeleteBtn: { paddingVertical: 4, paddingHorizontal: 8 },
   commentDeleteText: {},
@@ -782,35 +792,35 @@ const styles = StyleSheet.create({
   },
   editModalGroupLabel: { fontWeight: '500' },
   editModalGroupValue: { flex: 1, marginLeft: 12, textAlign: 'right' },
-  commentsTitle: { fontWeight: '600', color: lightTheme.text, marginBottom: 12 },
+  commentsTitle: { fontWeight: '600', marginBottom: 8 },
   commentRow: {
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderBottomWidth: 1,
   },
-  commentNickname: { fontWeight: '600', color: lightTheme.primary, marginBottom: 4 },
-  commentContent: { color: lightTheme.text },
-  commentDate: { color: lightTheme.textSecondary, marginTop: 4, fontSize: 11 },
+  commentNickname: { fontWeight: '600', marginBottom: 4 },
+  commentContent: {},
+  commentDate: { marginTop: 4, fontSize: 11 },
   commentInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderTopWidth: 1,
     backgroundColor: lightTheme.card,
   },
   commentInput: {
     flex: 1,
     backgroundColor: lightTheme.bgSecondary,
-    borderRadius: 16,
+    borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 10,
     color: lightTheme.text,
-    marginRight: 10,
+    marginRight: 8,
   },
   commentSubmit: {
     paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 16,
+    paddingHorizontal: 16,
+    borderRadius: 14,
   },
   commentSubmitText: { color: '#FFF', fontWeight: '600' },
 });
