@@ -461,8 +461,7 @@ export default function HomeScreen() {
                       onPress: async () => {
                         const result = await sendReminderPush(toUserId, group.id, myNickname || '모임원');
                         if ('ok' in result) {
-                          setCompleteToast('응원 메시지를 보냈어요 💌');
-                          setTimeout(() => setCompleteToast(null), 2200);
+                          Alert.alert('응원 완료 📣', '읽기 완료하라고 알림을 보냈어요!');
                         } else if (result.error === 'already_sent_today') {
                           Alert.alert('이미 보냈어요', '오늘 이미 응원을 보낸 멤버예요.');
                         } else if (result.error === 'no_push_token') {
