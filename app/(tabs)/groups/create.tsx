@@ -164,7 +164,8 @@ export default function GroupCreateScreen() {
   return (
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: theme.bg }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : insets.bottom}
     >
       <View style={[styles.header, { backgroundColor: theme.bg, borderBottomColor: theme.border, paddingTop: 12, paddingBottom: 12 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerSide}>

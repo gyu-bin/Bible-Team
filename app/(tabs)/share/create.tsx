@@ -160,7 +160,7 @@ export default function ShareCreateScreen() {
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: theme.bg }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 50 : 0}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : insets.bottom}
     >
       <View style={[styles.header, { paddingTop: Platform.OS === 'ios' ? 12 : insets.top, paddingBottom: 12, paddingHorizontal: 16, backgroundColor: theme.bg, borderBottomWidth: 1, borderBottomColor: theme.border }]}>
         <TouchableOpacity
