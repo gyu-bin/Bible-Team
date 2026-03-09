@@ -20,7 +20,6 @@ import type { ReadingGroupRow } from '@/types/database';
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getCachedGroups, setCachedGroups, getLocalGroupById, isLocalUserId, getNickname, removeGroupFromMyCache, deleteLocalGroup, getOrCreateLocalUserId } from '@/lib/cache';
 import { getGroupDescription, setGroupDescription } from '@/lib/groupDescriptionStorage';
-import { sendReminderPush } from '@/services/reminderPushService';
 import { getNicknamesByUserIds, upsertMyNickname } from '@/services/profileService';
 import { useFontScale } from '@/contexts/FontSizeContext';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -47,8 +46,6 @@ export default function GroupDetailScreen() {
   const [deleting, setDeleting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [todayProgress, setTodayProgress] = useState<{ user_id: string; todayCompleted: boolean }[] | null>(null);
-  const [sendingReminderTo, setSendingReminderTo] = useState<string | null>(null);
-  const [sentReminderTo, setSentReminderTo] = useState<Set<string>>(new Set());
 
   const isLocalGroup = typeof id === 'string' && (id.startsWith('local_') || isLocalUserId(id));
 
@@ -138,42 +135,6 @@ export default function GroupDetailScreen() {
     await loadGroup({ silent: true });
     setRefreshing(false);
   }, [id, loadGroup]);
-
-  const handleSendReminder = (toUserId: string) => {
-    if (!group || sendingReminderTo) return;
-    const name = memberNicknames[toUserId] || '이 멤버';
-    Alert.alert(
-      '응원 보내기 📣',
-      `${name}에게 오늘 읽기 리마인드를 보낼까요?`,
-      [
-        { text: '취소', style: 'cancel' },
-        { text: '보내기', onPress: () => doSendReminder(toUserId) },
-      ]
-    );
-  };
-
-  const doSendReminder = async (toUserId: string) => {
-    if (!group) return;
-    setSendingReminderTo(toUserId);
-    try {
-      const result = await sendReminderPush(toUserId, group.id, myNickname || '모임원');
-      if ('ok' in result) {
-        setSentReminderTo((prev) => new Set(prev).add(toUserId));
-        Alert.alert('응원 완료 📣', '읽기 완료하라고 알림을 보냈어요!');
-      } else if (result.error === 'already_sent_today') {
-        Alert.alert('이미 보냈어요', '오늘 이미 응원을 보낸 멤버예요.');
-        setSentReminderTo((prev) => new Set(prev).add(toUserId));
-      } else if (result.error === 'no_push_token') {
-        Alert.alert('알림 불가', '이 멤버는 앱 알림을 허용하지 않았어요.');
-      } else {
-        Alert.alert('오류', '응원 전송에 실패했어요.');
-      }
-    } catch {
-      Alert.alert('오류', '응원 전송에 실패했어요.');
-    } finally {
-      setSendingReminderTo(null);
-    }
-  };
 
   const handleLeave = () => {
     if (!group || !currentUserId) return;
@@ -351,29 +312,12 @@ export default function GroupDetailScreen() {
               const displayName = currentUserId === p.user_id
                 ? (myNickname || memberNicknames[p.user_id] || '나')
                 : (memberNicknames[p.user_id] || `멤버 ${i + 1}`);
-              const isMe = p.user_id === currentUserId;
-              const alreadySent = sentReminderTo.has(p.user_id);
-              const canSendReminder = !isMe && !p.todayCompleted && alreadyMember;
               return (
                 <View key={p.user_id} style={styles.statsMemberRow}>
                   <Text style={[styles.statsMemberName, { fontSize: s(14), color: theme.text }]}>{displayName}</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Text style={[styles.statsMemberDays, { fontSize: s(13), color: p.todayCompleted ? theme.doneText : theme.textSecondary }]}>
-                      {p.todayCompleted ? '✓ 오늘 완료' : '○ 아직'}
-                    </Text>
-                    {canSendReminder && (
-                      <TouchableOpacity
-                        onPress={() => handleSendReminder(p.user_id)}
-                        disabled={!!sendingReminderTo || alreadySent}
-                        style={[styles.reminderBtn, { backgroundColor: alreadySent ? theme.bgSecondary : theme.primary, opacity: sendingReminderTo === p.user_id ? 0.6 : 1 }]}
-                        hitSlop={6}
-                      >
-                        <Text style={[styles.reminderBtnText, { fontSize: s(11), color: alreadySent ? theme.textSecondary : '#FFF' }]}>
-                          {alreadySent ? '응원함' : sendingReminderTo === p.user_id ? '...' : '응원 📣'}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
+                  <Text style={[styles.statsMemberDays, { fontSize: s(13), color: p.todayCompleted ? theme.doneText : theme.textSecondary }]}>
+                    {p.todayCompleted ? '✓ 오늘 완료' : '○ 아직'}
+                  </Text>
                 </View>
               );
             })}
@@ -568,10 +512,4 @@ const styles = StyleSheet.create({
   },
   deleteGroupButtonText: { color: '#FFF', fontWeight: '600' },
   actionDisabled: { opacity: 0.6 },
-  reminderBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  reminderBtnText: { fontWeight: '600' },
 });
