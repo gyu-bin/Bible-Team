@@ -508,11 +508,10 @@ export default function HomeScreen() {
           animationType="slide"
           onRequestClose={() => setMeditationModal(null)}
         >
-          <KeyboardAvoidingView
-            style={styles.meditationOverlay}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          >
-            <View style={[styles.meditationBox, { backgroundColor: theme.card }]}>
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <TouchableOpacity style={styles.meditationOverlay} activeOpacity={1} onPress={() => { setMeditationModal(null); setMeditationInput(''); }}>
+              <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+                <View style={[styles.meditationBox, { backgroundColor: theme.card }]}>
               <Text style={[styles.meditationTitle, { color: theme.text, fontSize: s(17) }]}>오늘의 묵상 ✍️</Text>
               <Text style={[styles.meditationSub, { color: theme.textSecondary, fontSize: s(13) }]}>
                 {meditationModal.readingText}
@@ -559,14 +558,17 @@ export default function HomeScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
-            </View>
+                </View>
+              </TouchableOpacity>
+            </TouchableOpacity>
           </KeyboardAvoidingView>
         </Modal>
       )}
       {completionCelebration && (
         <Modal visible transparent animationType="fade" onRequestClose={() => setCompletionCelebration(null)}>
-          <View style={styles.celebrationOverlay}>
-            <View style={[styles.celebrationBox, { backgroundColor: theme.card }]}>
+          <TouchableOpacity style={styles.celebrationOverlay} activeOpacity={1} onPress={() => setCompletionCelebration(null)}>
+            <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+              <View style={[styles.celebrationBox, { backgroundColor: theme.card }]}>
               <Text style={styles.celebrationEmoji}>🎉</Text>
               <Text style={[styles.celebrationTitle, { color: theme.text, fontSize: s(20) }]}>
                 완독 달성!
@@ -593,8 +595,9 @@ export default function HomeScreen() {
                   <Text style={[{ fontSize: s(14), color: theme.textSecondary }]}>닫기</Text>
                 </TouchableOpacity>
               </View>
-            </View>
-          </View>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
         </Modal>
       )}
       {milestoneToast ? (

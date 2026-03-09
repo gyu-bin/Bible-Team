@@ -188,8 +188,8 @@ export default function ShareListScreen() {
       const now = Date.now();
       if (!pendingPost && now - lastFetchRef.current < STALE_MS) return;
       lastFetchRef.current = now;
-      loadPosts(pendingPost ?? undefined);
-    }, [loadPosts])
+      load();
+    }, [load])
   );
 
   useEffect(() => {
@@ -605,6 +605,8 @@ export default function ShareListScreen() {
       {/* 글 수정 모달 */}
       <Modal visible={editModalVisible} animationType="slide" transparent>
         <KeyboardAvoidingView style={styles.editModalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setEditModalVisible(false)} />
+          <TouchableOpacity activeOpacity={1} onPress={() => {}}>
           <View style={[styles.editModalContent, { backgroundColor: theme.bg }]}>
             <View style={[styles.editModalHeader, { borderBottomColor: theme.border }]}>
               <TouchableOpacity onPress={() => setEditModalVisible(false)}>
@@ -652,6 +654,7 @@ export default function ShareListScreen() {
               </Text>
             </TouchableOpacity>
           </View>
+          </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
     </View>

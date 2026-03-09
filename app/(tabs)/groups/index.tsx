@@ -211,7 +211,8 @@ export default function GroupsListScreen() {
       </ScrollView>
 
       <Modal visible={joinModalVisible} transparent animationType="fade">
-        <View style={styles.joinModalOverlay}>
+        <TouchableOpacity style={styles.joinModalOverlay} activeOpacity={1} onPress={() => { setJoinModalVisible(false); setInviteCodeInput(''); }}>
+          <TouchableOpacity activeOpacity={1} onPress={() => {}}>
           <View style={[styles.joinModalBox, { backgroundColor: theme.card }]}>
             <Text style={[styles.joinModalTitle, { fontSize: s(18), color: theme.text }]}>초대 코드로 참여</Text>
             <Text style={[styles.joinModalSub, { fontSize: s(14), color: theme.textSecondary, marginBottom: 12 }]}>
@@ -240,7 +241,8 @@ export default function GroupsListScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
     </View>
   );
