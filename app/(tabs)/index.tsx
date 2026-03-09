@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Animated, Modal, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Animated, Modal, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getMyGroups } from '@/services/groupService';
@@ -508,7 +508,10 @@ export default function HomeScreen() {
           animationType="slide"
           onRequestClose={() => setMeditationModal(null)}
         >
-          <View style={styles.meditationOverlay}>
+          <KeyboardAvoidingView
+            style={styles.meditationOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
             <View style={[styles.meditationBox, { backgroundColor: theme.card }]}>
               <Text style={[styles.meditationTitle, { color: theme.text, fontSize: s(17) }]}>오늘의 묵상 ✍️</Text>
               <Text style={[styles.meditationSub, { color: theme.textSecondary, fontSize: s(13) }]}>
@@ -557,7 +560,7 @@ export default function HomeScreen() {
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
       )}
       {completionCelebration && (

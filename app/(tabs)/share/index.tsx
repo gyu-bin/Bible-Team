@@ -604,7 +604,7 @@ export default function ShareListScreen() {
 
       {/* 글 수정 모달 */}
       <Modal visible={editModalVisible} animationType="slide" transparent>
-        <KeyboardAvoidingView style={styles.editModalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView style={styles.editModalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={[styles.editModalContent, { backgroundColor: theme.bg }]}>
             <View style={[styles.editModalHeader, { borderBottomColor: theme.border }]}>
               <TouchableOpacity onPress={() => setEditModalVisible(false)}>
