@@ -23,19 +23,19 @@ function generateInviteCode(): string {
 export async function createGroup(input: CreateGroupInput): Promise<ReadingGroupRow> {
   const inviteCode = generateInviteCode();
 
+  const row: Record<string, unknown> = {
+    title: input.title,
+    leader_id: input.leaderId,
+    start_book: input.startBook,
+    pages_per_day: input.pagesPerDay,
+    duration_days: input.durationDays,
+    invite_code: inviteCode,
+  };
+  if (input.startsAt != null && input.startsAt.trim() !== '') {
+    row.starts_at = input.startsAt.trim();
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any)
-    .from('reading_groups')
-    .insert({
-      title: input.title,
-      leader_id: input.leaderId,
-      start_book: input.startBook,
-      pages_per_day: input.pagesPerDay,
-      duration_days: input.durationDays,
-      invite_code: inviteCode,
-    })
-    .select()
-    .single();
+  const { data, error } = await (supabase as any).from('reading_groups').insert(row).select().single();
 
   if (error) throw error;
   return data as ReadingGroupRow;

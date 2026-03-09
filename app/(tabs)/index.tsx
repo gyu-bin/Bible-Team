@@ -17,11 +17,17 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useDataRefresh } from '@/contexts/DataRefreshContext';
 import type { ReadingGroupRow } from '@/types/database';
 
-function getDayIndex(createdAt: string): number {
-  const start = new Date(createdAt);
+/** 모임의 실제 1일차 기준일 (starts_at 있으면 그날, 없으면 생성일) */
+function getGroupStartDate(group: ReadingGroupRow): string {
+  return group.starts_at ?? group.created_at;
+}
+
+function getDayIndex(startDate: string): number {
+  const start = new Date(startDate);
   start.setHours(0, 0, 0, 0);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  if (start.getTime() > today.getTime()) return -1;
   const diff = Math.floor((today.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
   return Math.max(0, diff);
 }
@@ -130,8 +136,13 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       getNickname().then((n) => setMyNickname(n ?? ''));
+      // 포커스 시 진행 중인 멤버 닉네임만 먼저 재조회해 설정에서 바꾼 닉네임이 바로 반영되도록 함
+      const ids = Array.from(new Set(Object.values(memberProgress).flat().map((m) => m.user_id)));
+      if (ids.length > 0) {
+        getNicknamesByUserIds(ids).then(setMemberNicknames).catch(() => {});
+      }
       load();
-    }, [load])
+    }, [load, memberProgress])
   );
 
   useEffect(() => {
@@ -191,7 +202,7 @@ export default function HomeScreen() {
         setCompletingId(null);
         return;
       }
-      const dayIndex = getDayIndex(group.created_at);
+      const dayIndex = getDayIndex(getGroupStartDate(group));
       const chapters = getTodayChapters(group.start_book, group.pages_per_day, dayIndex);
       const entries = chapters.flatMap((c) => {
         const arr: { book: string; chapter: number }[] = [];
@@ -271,10 +282,14 @@ export default function HomeScreen() {
     );
   }
 
-  const inProgressGroups = groups.filter((g) => getDayIndex(g.created_at) < g.duration_days);
-  const completedGroups = groups.filter((g) => getDayIndex(g.created_at) >= g.duration_days);
+  const inProgressGroups = groups.filter((g) => {
+    const day = getDayIndex(getGroupStartDate(g));
+    return day >= 0 && day < g.duration_days;
+  });
+  const completedGroups = groups.filter((g) => getDayIndex(getGroupStartDate(g)) >= g.duration_days);
+  const notStartedGroups = groups.filter((g) => getDayIndex(getGroupStartDate(g)) < 0);
   const showCompleted = !completedCollapsed;
-  const listToShow = [...inProgressGroups, ...(showCompleted ? completedGroups : [])];
+  const listToShow = [...notStartedGroups, ...inProgressGroups, ...(showCompleted ? completedGroups : [])];
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
@@ -310,10 +325,30 @@ export default function HomeScreen() {
           ↓ 당겨서 새로고침하면 함께 읽는 사람 정보가 갱신돼요
         </Text>
         {listToShow.map((group) => {
-          const dayIndex = getDayIndex(group.created_at);
+          const dayIndex = getDayIndex(getGroupStartDate(group));
           const isDone = dayIndex >= group.duration_days;
-          const displayDayIndex = isDone ? group.duration_days - 1 : dayIndex;
+          const notStarted = dayIndex < 0;
+          const displayDayIndex = isDone ? group.duration_days - 1 : Math.max(0, dayIndex);
           const collapsed = collapsedGroupIds[group.id];
+          if (notStarted) {
+            const startD = group.starts_at ? new Date(group.starts_at) : null;
+            const startLabel = startD ? `${startD.getMonth() + 1}월 ${startD.getDate()}일부터 시작` : '시작일 미정';
+            return (
+              <TouchableOpacity
+                key={group.id}
+                style={[styles.collapsedCardRow, { backgroundColor: theme.card }]}
+                onPress={() => router.push(`/group/${group.id}`)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.collapsedCardTitle, { color: theme.text, fontSize: s(15) }]} numberOfLines={1}>
+                  {group.title}
+                </Text>
+                <Text style={[styles.collapsedCardDay, { color: theme.textSecondary, fontSize: s(13) }]}>
+                  {startLabel}
+                </Text>
+              </TouchableOpacity>
+            );
+          }
           if (collapsed) {
             return (
               <TouchableOpacity

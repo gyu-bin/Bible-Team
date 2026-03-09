@@ -129,10 +129,10 @@ export async function getShareCounts(): Promise<{
   return { likeCountByPost, commentCountByPost };
 }
 
-/** 나눔 글 작성 (내용 + 선택한 모임). 로그인 시 서버에 저장 */
+/** 나눔 글 작성 (내용 + 선택한 모임 + 선택 사진). 세션 있으면 서버, 없으면 기기 로컬 */
 export async function addSharePost(
   content: string,
-  options?: { groupId?: string | null; groupTitle?: string | null }
+  options?: { groupId?: string | null; groupTitle?: string | null; imageUrl?: string | null }
 ): Promise<SharePost> {
   const authorNickname = (await getNickname()) || '익명';
   const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
@@ -141,6 +141,7 @@ export async function addSharePost(
       return await addSharePostToServer(user.id, authorNickname, content, options);
     } catch (e) {
       console.warn('addSharePostToServer failed', e);
+      throw e;
     }
   }
   const authorId = await getOrCreateLocalUserId();
@@ -152,6 +153,7 @@ export async function addSharePost(
     createdAt: new Date().toISOString(),
     groupId: options?.groupId ?? null,
     groupTitle: options?.groupTitle ?? null,
+    imageUrl: options?.imageUrl ?? null,
   };
   const posts = await getStoredPosts();
   await setStoredPosts([post, ...posts]);

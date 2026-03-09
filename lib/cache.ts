@@ -69,6 +69,7 @@ export async function createLocalGroup(input: {
   startBook: string;
   pagesPerDay: number;
   durationDays: number;
+  startsAt?: string | null;
 }): Promise<ReadingGroupRow> {
   const now = new Date().toISOString();
   const group: ReadingGroupRow = {
@@ -81,6 +82,7 @@ export async function createLocalGroup(input: {
     invite_code: generateInviteCode(),
     created_at: now,
     updated_at: now,
+    ...(input.startsAt != null && input.startsAt.trim() !== '' && { starts_at: input.startsAt.trim() }),
   };
   const list = await getLocalGroups();
   await setLocalGroups([group, ...list]);
@@ -155,9 +157,13 @@ export async function deleteLocalGroup(groupId: string): Promise<void> {
   await setCachedGroups(cached.filter((g) => g.id !== groupId));
 }
 
-/** 오늘 날짜 키 (날짜가 바뀌면 캐시 무효화) */
+/** 오늘 날짜 키 (로컬 날짜, 날짜가 바뀌면 캐시 무효화) */
 function getTodayKey(): string {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 export async function getCachedLoggedToday(): Promise<Record<string, boolean>> {

@@ -1,145 +1,65 @@
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Alert,
   ScrollView,
   Image,
-  ActivityIndicator,
-  useWindowDimensions,
   RefreshControl,
-  Modal,
-  PanResponder,
+  ActivityIndicator,
 } from 'react-native';
-import { captureRef } from 'react-native-view-shot';
-import * as ImagePicker from 'expo-image-picker';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getGroupById } from '@/services/groupService';
-import { getNickname } from '@/lib/cache';
-import { getCertifications, addCertification, deleteCertification, type CertificationItem } from '@/lib/certificationStorage';
-import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
+import { getLocalGroupById } from '@/lib/cache';
+import { getSharePosts } from '@/lib/shareStorage';
+import { getNicknamesByUserIds } from '@/services/profileService';
 import { useFontScale } from '@/contexts/FontSizeContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useDataRefresh } from '@/contexts/DataRefreshContext';
+import type { SharePost } from '@/types/share';
 import type { ReadingGroupRow } from '@/types/database';
 
-const GAP = 8;
-const COLS = 2;
-
-function formatCertDateTime(iso: string): string {
+function formatDate(iso: string): string {
   const d = new Date(iso);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const h = String(d.getHours()).padStart(2, '0');
-  const min = String(d.getMinutes()).padStart(2, '0');
-  return `${y}.${m}.${day} ${h}:${min}`;
-}
-
-function formatCertDate(iso: string): string {
-  const d = new Date(iso);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}.${m}.${day}`;
-}
-
-function formatCertTime(iso: string): string {
-  const d = new Date(iso);
-  const h = String(d.getHours()).padStart(2, '0');
-  const min = String(d.getMinutes()).padStart(2, '0');
-  return `${h}:${min}`;
-}
-
-function formatCertTimeLabel(iso: string): string {
-  const d = new Date(iso);
-  const today = new Date();
-  const isToday = d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
-  const time = formatCertTime(iso);
-  return isToday ? `오늘 ${time} 인증` : `${formatCertDate(iso)} ${time}`;
+  const now = new Date();
+  const diff = now.getTime() - d.getTime();
+  if (diff < 60 * 1000) return '방금 전';
+  if (diff < 60 * 60 * 1000) return `${Math.floor(diff / 60000)}분 전`;
+  if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / 3600000)}시간 전`;
+  if (diff < 7 * 24 * 60 * 60 * 1000) return `${Math.floor(diff / 86400000)}일 전`;
+  return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
 export default function GroupFeedScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
   const { theme } = useTheme();
   const { fontScale } = useFontScale();
-  const { invalidate } = useDataRefresh();
   const s = (n: number) => Math.round(n * fontScale);
 
   const [group, setGroup] = useState<ReadingGroupRow | null>(null);
-  const [certifications, setCertifications] = useState<CertificationItem[]>([]);
+  const [posts, setPosts] = useState<SharePost[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [myNickname, setMyNickname] = useState('');
-  const [cameraPreviewUri, setCameraPreviewUri] = useState<string | null>(null);
-  const [cameraPreviewTime, setCameraPreviewTime] = useState('');
-  const [stampPosition, setStampPosition] = useState({ x: 20, y: 200 });
-  const stampPositionRef = useRef({ x: 20, y: 200 });
-  const stampDragStartRef = useRef({ x: 20, y: 200 });
-  const [selectedCert, setSelectedCert] = useState<CertificationItem | null>(null);
-  const [deletingCertId, setDeletingCertId] = useState<string | null>(null);
-  const [failedImageIds, setFailedImageIds] = useState<Set<string>>(new Set());
-  const stampViewRef = useRef<View | null>(null);
-
-  const STAMP_OVERLAY_W = 160;
-  const STAMP_OVERLAY_H = 52;
-
-  useEffect(() => {
-    stampPositionRef.current = stampPosition;
-  }, [stampPosition]);
-
-  const stampPreviewSize = Math.min(width - 48, 400);
-  const stampPanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: () => {
-          stampDragStartRef.current = { ...stampPositionRef.current };
-        },
-        onPanResponderMove: (_, gestureState) => {
-          const start = stampDragStartRef.current;
-          const newX = Math.max(0, Math.min(stampPreviewSize - STAMP_OVERLAY_W, start.x + gestureState.dx));
-          const newY = Math.max(0, Math.min(stampPreviewSize - STAMP_OVERLAY_H, start.y + gestureState.dy));
-          stampPositionRef.current = { x: newX, y: newY };
-          setStampPosition({ x: newX, y: newY });
-        },
-      }),
-    [stampPreviewSize]
-  );
-
-  useEffect(() => {
-    if (cameraPreviewUri) {
-      const x = Math.max(0, (stampPreviewSize - STAMP_OVERLAY_W) / 2);
-      const y = Math.max(0, stampPreviewSize - STAMP_OVERLAY_H - 16);
-      setStampPosition({ x, y });
-      stampPositionRef.current = { x, y };
-    }
-  }, [cameraPreviewUri, stampPreviewSize]);
+  const [nicknames, setNicknames] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     if (!id || typeof id !== 'string') return;
-    setFailedImageIds(new Set());
     try {
-      const groupData = await getGroupById(id);
+      const isLocal = id.startsWith('local_');
+      const groupData = isLocal ? await getLocalGroupById(id) : await getGroupById(id);
       setGroup(groupData ?? null);
-      if (groupData) {
-        const list = await getCertifications(groupData.id);
-        setCertifications(list);
+      const all = await getSharePosts({ limit: 200, offset: 0 });
+      const forGroup = all.filter((p) => p.groupId === id);
+      setPosts(forGroup);
+      const authorIds = [...new Set(forGroup.map((p) => p.authorId).filter(Boolean))];
+      if (authorIds.length > 0) {
+        const map = await getNicknamesByUserIds(authorIds).catch(() => ({}));
+        setNicknames(map);
       }
-      const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
-      setCurrentUserId(user?.id ?? null);
-      const nickname = await getNickname();
-      setMyNickname(nickname ?? '');
     } catch (e) {
       console.error(e);
     } finally {
@@ -154,122 +74,14 @@ export default function GroupFeedScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      getNickname().then((n) => setMyNickname(n ?? ''));
-    }, [])
+      load();
+    }, [load])
   );
 
-  const handleAddPhoto = () => {
-    if (!group || !currentUserId) return;
-    Alert.alert('사진 인증', '사진을 어떻게 올릴까요?', [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '카메라',
-        onPress: async () => {
-          const { status } = await ImagePicker.requestCameraPermissionsAsync();
-          if (status !== 'granted') {
-            Alert.alert('권한 필요', '카메라 권한이 필요해요.');
-            return;
-          }
-          const result = await ImagePicker.launchCameraAsync({
-            mediaTypes: ['images'],
-            allowsEditing: true,
-            quality: 0.8,
-          });
-          if (!result.canceled && result.assets[0]?.uri) {
-            setCameraPreviewTime(new Date().toISOString());
-            setCameraPreviewUri(result.assets[0].uri);
-          }
-        },
-      },
-      {
-        text: '갤러리',
-        onPress: async () => {
-          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-          if (status !== 'granted') {
-            Alert.alert('권한 필요', '갤러리 접근 권한이 필요해요.');
-            return;
-          }
-          const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ['images'],
-            allowsEditing: true,
-            quality: 0.8,
-          });
-          if (!result.canceled && result.assets[0]?.uri) {
-            setCameraPreviewTime(new Date().toISOString());
-            setCameraPreviewUri(result.assets[0].uri);
-          }
-        },
-      },
-    ]);
-  };
+  const displayName = (post: SharePost) =>
+    post.authorId ? (nicknames[post.authorId] || post.authorNickname || '알 수 없음') : (post.authorNickname || '알 수 없음');
 
-  const padding = 20;
-  const contentWidth = width - padding * 2;
-  const cardSize = (contentWidth - GAP * (COLS - 1)) / COLS;
-  const largeImageSize = Math.min(width, height - 120);
-
-  const handleDeleteCert = (cert: CertificationItem) => {
-    if (!group || cert.userId !== currentUserId) return;
-    Alert.alert(
-      '인증 사진 삭제',
-      '이 사진을 삭제할까요?',
-      [
-        { text: '취소', style: 'cancel' },
-        {
-          text: '삭제',
-          style: 'destructive',
-          onPress: async () => {
-            setDeletingCertId(cert.id);
-            try {
-              await deleteCertification(group.id, cert.id);
-              setCertifications((prev) => prev.filter((c) => c.id !== cert.id));
-              setSelectedCert(null);
-            } catch (e) {
-              console.error(e);
-              Alert.alert('오류', '삭제에 실패했어요.');
-            } finally {
-              setDeletingCertId(null);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleSaveWithTimestamp = async () => {
-    if (!stampViewRef.current || !group || !currentUserId || !cameraPreviewUri || !cameraPreviewTime) return;
-    setUploading(true);
-    try {
-      // 사용자가 놓은 스탬프 위치가 화면에 반영된 뒤 캡처하도록 한 프레임 대기
-      await new Promise<void>((r) => requestAnimationFrame(() => r()));
-      const uri = await captureRef(stampViewRef, {
-        format: 'jpg',
-        quality: 0.6,
-        result: 'tmpfile',
-      });
-      if (uri) {
-        await addCertification(
-          group.id,
-          currentUserId,
-          myNickname || '나',
-          uri,
-          cameraPreviewTime
-        );
-        await load();
-        invalidate();
-        setCameraPreviewUri(null);
-        setCameraPreviewTime('');
-        Alert.alert('저장됐어요', '인증 사진이 피드에 올라갔어요.');
-      }
-    } catch (e) {
-      console.error(e);
-      Alert.alert('올리기 실패', '인증 사진 저장에 실패했어요. 다시 시도해 주세요.');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  if (loading && certifications.length === 0) {
+  if (loading && posts.length === 0) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.bg }]}>
         <ActivityIndicator size="large" color={theme.primary} />
@@ -286,212 +98,64 @@ export default function GroupFeedScreen() {
           <Text style={[styles.backLabel, { fontSize: s(17), color: theme.text }]}>뒤로</Text>
         </TouchableOpacity>
         <Text style={[styles.title, { fontSize: s(18), color: theme.text }]} numberOfLines={1}>
-          인증 피드
+          {group?.title ?? '나눔'}
         </Text>
         <TouchableOpacity
-          onPress={handleAddPhoto}
-          disabled={uploading}
+          onPress={() =>
+            router.push({
+              pathname: '/(tabs)/share/create',
+              params: { groupId: id as string, groupTitle: group?.title ?? '' },
+            })
+          }
           style={styles.addBtn}
           hitSlop={12}
         >
-          {uploading ? (
-            <ActivityIndicator size="small" color={theme.primary} />
-          ) : (
-            <Ionicons name="add-circle" size={s(28)} color={theme.primary} />
-          )}
+          <Ionicons name="add-circle" size={s(28)} color={theme.primary} />
         </TouchableOpacity>
       </View>
 
-      <Modal visible={!!cameraPreviewUri} transparent animationType="fade">
-        <View style={styles.stampModalOverlay}>
-          <View style={[styles.stampModalBox, { backgroundColor: theme.card, maxWidth: width - 48 }]}>
-            <Text style={[styles.stampModalTitle, { fontSize: s(16), color: theme.text }]}>
-              오늘의 날짜·시간이 표시돼요
-            </Text>
-            <View
-              ref={stampViewRef}
-              style={{ width: stampPreviewSize, height: stampPreviewSize, backgroundColor: '#000' }}
-              collapsable={false}
-            >
-              <Image
-                source={{ uri: cameraPreviewUri! }}
-                style={{ width: stampPreviewSize, height: stampPreviewSize }}
-                resizeMode="cover"
-              />
-              <View
-                style={[
-                  styles.stampOverlay,
-                  {
-                    position: 'absolute',
-                    left: stampPosition.x,
-                    top: stampPosition.y,
-                    width: STAMP_OVERLAY_W,
-                    minHeight: STAMP_OVERLAY_H,
-                    backgroundColor: 'rgba(0,0,0,0.5)',
-                  },
-                ]}
-                {...stampPanResponder.panHandlers}
-              >
-                {cameraPreviewTime ? (
-                  <>
-                    <Text style={styles.stampText} numberOfLines={1}>{formatCertDate(cameraPreviewTime)}</Text>
-                    <Text style={styles.stampText} numberOfLines={1}>{formatCertTime(cameraPreviewTime)}</Text>
-                  </>
-                ) : null}
-              </View>
-            </View>
-            <View style={styles.stampModalActions}>
-              <TouchableOpacity
-                style={[styles.stampModalBtn, { borderColor: theme.border }]}
-                onPress={() => { setCameraPreviewUri(null); setCameraPreviewTime(''); }}
-                disabled={uploading}
-              >
-                <Text style={[styles.stampModalBtnText, { fontSize: s(15), color: theme.textSecondary }]}>취소</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.stampModalBtn, styles.stampModalBtnPrimary, { backgroundColor: theme.primary }]}
-                onPress={handleSaveWithTimestamp}
-                disabled={uploading}
-              >
-                {uploading ? (
-                  <ActivityIndicator size="small" color="#FFF" />
-                ) : (
-                  <Text style={[styles.stampModalBtnText, styles.stampModalBtnTextPrimary, { fontSize: s(15) }]}>저장</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24, maxWidth: width }]}
-        showsVerticalScrollIndicator={false}
-        horizontal={false}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />
         }
       >
-        <Text style={[styles.feedHint, { color: theme.textSecondary, fontSize: s(14) }]}>
-          오늘 읽은 분량을 사진으로 인증해보세요.
+        <Text style={[styles.hint, { color: theme.textSecondary, fontSize: s(14) }]}>
+          이 모임에서 올린 나눔 글이에요. 글과 사진을 올리려면 오른쪽 상단 + 를 누르세요.
         </Text>
-        {certifications.length === 0 ? (
+        {posts.length === 0 ? (
           <View style={styles.empty}>
-            <Text style={[styles.emptyEmoji, { fontSize: s(48) }]}>📷</Text>
-            <Text style={[styles.emptyTitle, { fontSize: s(17), color: theme.text }]}>아직 인증 사진이 없어요</Text>
+            <Text style={[styles.emptyEmoji, { fontSize: s(48) }]}>💬</Text>
+            <Text style={[styles.emptyTitle, { fontSize: s(17), color: theme.text }]}>아직 나눔 글이 없어요</Text>
             <Text style={[styles.emptySub, { fontSize: s(14), color: theme.textSecondary }]}>
-              오른쪽 상단 + 버튼으로 첫 사진을 올려보세요
+              + 버튼으로 첫 글을 올려보세요
             </Text>
           </View>
         ) : (
-          <View style={[styles.grid, { width: contentWidth }]}>
-            {certifications.map((cert, index) => (
-              <TouchableOpacity
-                key={cert.id}
-                style={[
-                  styles.gridItem,
-                  {
-                    width: cardSize,
-                    marginBottom: GAP,
-                    marginRight: index % COLS === COLS - 1 ? 0 : GAP,
-                  },
-                ]}
-                onPress={() => setSelectedCert(cert)}
-                activeOpacity={0.8}
-              >
-                {cert.imagePath && !failedImageIds.has(cert.id) ? (
-                  <Image
-                    key={cert.id}
-                    source={{
-                      uri: cert.imagePath.startsWith('data:')
-                        ? cert.imagePath
-                        : cert.imagePath + (cert.imagePath.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(cert.createdAt),
-                    }}
-                    style={[styles.gridImage, { width: cardSize, height: cardSize }]}
-                    resizeMode="cover"
-                    onError={() => setFailedImageIds((prev) => new Set(prev).add(cert.id))}
-                  />
-                ) : (
-                  <View style={[styles.gridImagePlaceholder, { width: cardSize, height: cardSize, backgroundColor: theme.bgSecondary }]}>
-                    <Ionicons name="image-outline" size={s(40)} color={theme.textSecondary} />
-                    <Text style={[styles.gridImagePlaceholderText, { fontSize: s(11), color: theme.textSecondary }]}>이미지 없음</Text>
-                  </View>
-                )}
-                <Text style={[styles.gridNickname, { fontSize: s(13), color: theme.text }]} numberOfLines={1}>
-                  {cert.userNickname}
+          posts.map((post) => (
+            <TouchableOpacity
+              key={post.id}
+              style={[styles.card, { backgroundColor: theme.card }]}
+              onPress={() => router.push({ pathname: '/(tabs)/share', params: { groupId: id } })}
+              activeOpacity={0.8}
+            >
+              <View style={styles.cardHeaderRow}>
+                <Text style={[styles.cardNickname, { fontSize: s(13), color: theme.primary }]}>{displayName(post)}</Text>
+                <Text style={[styles.cardDate, { fontSize: s(12), color: theme.textSecondary }]}>{formatDate(post.createdAt)}</Text>
+              </View>
+              {post.imageUrl ? (
+                <Image source={{ uri: post.imageUrl }} style={styles.cardImage} resizeMode="cover" />
+              ) : null}
+              {post.content.trim() ? (
+                <Text style={[styles.cardContent, { fontSize: s(15), color: theme.text }]} numberOfLines={3}>
+                  {post.content}
                 </Text>
-                <Text style={[styles.gridTimeLabel, { fontSize: s(11), color: theme.textSecondary }]} numberOfLines={1}>
-                  {formatCertTimeLabel(cert.createdAt)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+              ) : null}
+            </TouchableOpacity>
+          ))
         )}
       </ScrollView>
-
-      {/* 사진 크게 보기 모달 */}
-      <Modal visible={!!selectedCert} transparent animationType="fade">
-        <View style={styles.largeModalOverlay}>
-          {selectedCert && (
-            <>
-              <TouchableOpacity
-                style={StyleSheet.absoluteFill}
-                activeOpacity={1}
-                onPress={() => setSelectedCert(null)}
-              />
-              <View style={[styles.largeModalContent, { maxWidth: width, maxHeight: height - 100 }]}>
-                {selectedCert.imagePath ? (
-                  <Image
-                    key={selectedCert.id}
-                    source={{
-                      uri: selectedCert.imagePath.startsWith('data:')
-                        ? selectedCert.imagePath
-                        : selectedCert.imagePath + (selectedCert.imagePath.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(selectedCert.createdAt),
-                    }}
-                    style={[styles.largeModalImage, { width: largeImageSize, height: largeImageSize }]}
-                    resizeMode="contain"
-                  />
-                ) : (
-                  <View style={[styles.largeModalImagePlaceholder, { width: largeImageSize, height: largeImageSize, backgroundColor: theme.bgSecondary }]}>
-                    <Ionicons name="image-outline" size={s(48)} color={theme.textSecondary} />
-                    <Text style={[styles.gridImagePlaceholderText, { fontSize: s(14), color: theme.textSecondary }]}>이미지를 불러올 수 없어요</Text>
-                  </View>
-                )}
-                <View style={[styles.largeModalInfo, { backgroundColor: theme.card }]}>
-                  <Text style={[styles.largeModalNickname, { fontSize: s(15), color: theme.text }]}>
-                    {selectedCert.userNickname}
-                  </Text>
-                  <Text style={[styles.largeModalTime, { fontSize: s(13), color: theme.textSecondary }]}>
-                    {formatCertDateTime(selectedCert.createdAt)}
-                  </Text>
-                </View>
-                <View style={styles.largeModalActions}>
-                  <TouchableOpacity
-                    style={[styles.largeModalCloseBtn, { backgroundColor: theme.bgSecondary }]}
-                    onPress={() => setSelectedCert(null)}
-                  >
-                    <Text style={[styles.largeModalCloseText, { fontSize: s(15), color: theme.text }]}>닫기</Text>
-                  </TouchableOpacity>
-                  {selectedCert.userId === currentUserId && (
-                    <TouchableOpacity
-                      style={[styles.largeModalDeleteBtn, { backgroundColor: '#DC2626' }]}
-                      onPress={() => handleDeleteCert(selectedCert)}
-                      disabled={!!deletingCertId}
-                    >
-                      {deletingCertId === selectedCert.id ? (
-                        <ActivityIndicator size="small" color="#FFF" />
-                      ) : (
-                        <Text style={[styles.largeModalDeleteText, { fontSize: s(15) }]}>삭제</Text>
-                      )}
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-            </>
-          )}
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -514,123 +178,19 @@ const styles = StyleSheet.create({
   addBtn: { minWidth: 44, alignItems: 'flex-end' },
   scroll: { flex: 1 },
   scrollContent: { padding: 20, paddingTop: 16 },
-  feedHint: { marginBottom: 16 },
-  empty: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 80,
-  },
+  hint: { marginBottom: 16 },
+  empty: { alignItems: 'center', justifyContent: 'center', paddingVertical: 80 },
   emptyEmoji: { marginBottom: 16 },
   emptyTitle: { fontWeight: '600', marginBottom: 8 },
   emptySub: { textAlign: 'center' },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignSelf: 'flex-start',
-  },
-  gridItem: {
-    maxWidth: '100%',
-  },
-  gridImage: {
-    borderRadius: 12,
-    backgroundColor: '#eee',
-  },
-  gridImagePlaceholder: {
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  gridImagePlaceholderText: { marginTop: 6 },
-  gridNickname: { marginTop: 6, fontWeight: '600' },
-  gridTimeLabel: { marginTop: 2 },
-  stampModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-    overflow: 'hidden',
-  },
-  stampModalBox: {
-    borderRadius: 20,
-    padding: 20,
-    alignItems: 'center',
-    maxWidth: '100%',
-  },
-  stampModalTitle: { marginBottom: 16, fontWeight: '600' },
-  stampOverlay: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stampText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFF',
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
-  },
-  stampModalActions: {
-    flexDirection: 'row',
-    marginTop: 20,
-  },
-  stampModalBtn: {
-    flex: 1,
-    marginHorizontal: 6,
-    paddingVertical: 14,
+  card: {
     borderRadius: 16,
-    alignItems: 'center',
-    borderWidth: 1,
+    padding: 16,
+    marginBottom: 12,
   },
-  stampModalBtnPrimary: {},
-  stampModalBtnText: { fontWeight: '600' },
-  stampModalBtnTextPrimary: { color: '#FFF' },
-  largeModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  largeModalContent: {
-    alignItems: 'center',
-  },
-  largeModalImage: {
-    borderRadius: 12,
-    backgroundColor: '#000',
-  },
-  largeModalImagePlaceholder: {
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  largeModalInfo: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    marginTop: 16,
-    alignSelf: 'stretch',
-    alignItems: 'center',
-  },
-  largeModalNickname: { fontWeight: '600', marginBottom: 4 },
-  largeModalTime: {},
-  largeModalActions: {
-    flexDirection: 'row',
-    marginTop: 16,
-  },
-  largeModalCloseBtn: {
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 16,
-    marginRight: 12,
-  },
-  largeModalCloseText: { fontWeight: '600' },
-  largeModalDeleteBtn: {
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 16,
-  },
-  largeModalDeleteText: { color: '#FFF', fontWeight: '600' },
+  cardHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  cardNickname: { fontWeight: '600' },
+  cardDate: {},
+  cardImage: { width: '100%', height: 200, borderRadius: 12, marginBottom: 8 },
+  cardContent: { lineHeight: 22 },
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Platform,
   RefreshControl,
   Alert,
+  Image,
 } from 'react-native';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,7 +35,9 @@ import {
 const SHARE_PAGE_SIZE = 20;
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getOrCreateLocalUserId, getCachedGroups, getLocalGroups, getNickname } from '@/lib/cache';
+import { getMyGroups } from '@/services/groupService';
 import { getNicknamesByUserIds } from '@/services/profileService';
+import { getAndClearPendingNewPost } from './pendingNewPost';
 import type { SharePost, ShareComment } from '@/types/share';
 
 function formatDate(iso: string): string {
@@ -68,6 +71,7 @@ export default function ShareListScreen() {
   const [commentCountByPost, setCommentCountByPost] = useState<Record<string, number>>({});
   const [filterGroupId, setFilterGroupId] = useState<string | null>(null);
   const [filterGroups, setFilterGroups] = useState<{ id: string; title: string }[]>([]);
+  const [groupsLoaded, setGroupsLoaded] = useState(false);
   const [authorNicknamesMap, setAuthorNicknamesMap] = useState<Record<string, string>>({});
   const [currentUserNickname, setCurrentUserNickname] = useState('');
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -79,24 +83,32 @@ export default function ShareListScreen() {
   const [hasMorePosts, setHasMorePosts] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const params = useLocalSearchParams<{ groupId?: string }>();
+  const pendingPostRef = useRef<SharePost | null>(null);
 
-  const loadPosts = useCallback(async () => {
+  const loadPosts = useCallback(async (mergeAtTop?: SharePost | null) => {
+    let toMerge: SharePost | null | undefined = mergeAtTop;
+    if (toMerge == null && pendingPostRef.current) {
+      toMerge = pendingPostRef.current;
+      pendingPostRef.current = null;
+    }
     const [list, counts] = await Promise.all([
       getSharePosts({ limit: SHARE_PAGE_SIZE, offset: 0 }),
       getShareCounts(),
     ]);
-    setPosts(list);
+    const hasMerged = toMerge != null && !list.some((p) => p.id === toMerge!.id);
+    const finalList: SharePost[] = hasMerged && toMerge ? [toMerge, ...list] : list;
+    setPosts(finalList);
     setHasMorePosts(list.length >= SHARE_PAGE_SIZE);
     setLikeCountByPost(counts.likeCountByPost);
     setCommentCountByPost(counts.commentCountByPost);
-    const authorIds = [...new Set(list.map((p) => p.authorId).filter(Boolean))];
+    const authorIds = [...new Set(finalList.map((p) => p.authorId).filter(Boolean))];
     if (authorIds.length > 0) {
       const nickMap = await getNicknamesByUserIds(authorIds).catch(() => ({}));
       setAuthorNicknamesMap(nickMap);
     }
     const currentNick = await getNickname();
     setCurrentUserNickname(currentNick ?? '');
-    return list;
+    return finalList;
   }, []);
 
   const loadMore = useCallback(async () => {
@@ -124,13 +136,27 @@ export default function ShareListScreen() {
       const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
       const uid = user?.id ?? (await getOrCreateLocalUserId());
       setCurrentUserId(uid);
-      const [cached, local] = await Promise.all([getCachedGroups(), getLocalGroups()]);
-      const groups = local.length > 0 ? local : cached;
-      setFilterGroups(groups.map((g) => ({ id: g.id, title: g.title })));
+      let groups: { id: string; title: string }[] = [];
+      if (user?.id) {
+        try {
+          const list = await getMyGroups(user.id);
+          groups = list.map((g) => ({ id: g.id, title: g.title }));
+        } catch {
+          const [cached, local] = await Promise.all([getCachedGroups(), getLocalGroups()]);
+          const raw = local.length > 0 ? local : cached;
+          groups = raw.map((g) => ({ id: g.id, title: g.title }));
+        }
+      } else {
+        const [cached, local] = await Promise.all([getCachedGroups(), getLocalGroups()]);
+        const raw = local.length > 0 ? local : cached;
+        groups = raw.map((g) => ({ id: g.id, title: g.title }));
+      }
+      setFilterGroups(groups);
       await loadPosts();
     } catch (e) {
       console.error(e);
     } finally {
+      setGroupsLoaded(true);
       setLoading(false);
       setRefreshing(false);
     }
@@ -146,7 +172,18 @@ export default function ShareListScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadPosts();
+      const pendingPost = getAndClearPendingNewPost();
+      if (pendingPost) {
+        pendingPostRef.current = pendingPost;
+        setPosts((prev) => [pendingPost, ...prev]);
+        if (pendingPost.authorId) {
+          setAuthorNicknamesMap((prev) => ({
+            ...prev,
+            [pendingPost.authorId]: pendingPost.authorNickname ?? '',
+          }));
+        }
+      }
+      loadPosts(pendingPost ?? undefined);
     }, [loadPosts])
   );
 
@@ -156,9 +193,13 @@ export default function ShareListScreen() {
     }
   }, [params.groupId]);
 
-  const filteredPosts = filterGroupId
-    ? posts.filter((p) => p.groupId === filterGroupId)
-    : posts;
+  const myGroupIds = filterGroups.map((g) => g.id);
+  const filteredPosts =
+    filterGroupId !== null
+      ? posts.filter((p) => p.groupId === filterGroupId)
+      : !groupsLoaded
+        ? posts
+        : posts.filter((p) => p.groupId == null || myGroupIds.includes(p.groupId));
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -299,23 +340,27 @@ export default function ShareListScreen() {
         <Text style={[styles.subtitle, { fontSize: s(13) }]}>읽은 말씀을 나눠보세요</Text>
       </View>
       <View style={styles.filterRow}>
-        <TouchableOpacity
-          style={[styles.filterChip, { backgroundColor: !filterGroupId ? theme.primary : theme.bgSecondary }]}
-          onPress={() => setFilterGroupId(null)}
-        >
-          <Text style={[styles.filterChipText, { fontSize: s(13), color: !filterGroupId ? '#FFF' : theme.textSecondary }]}>전체</Text>
-        </TouchableOpacity>
-        {filterGroups.map((g) => (
-          <TouchableOpacity
-            key={g.id}
-            style={[styles.filterChip, { backgroundColor: filterGroupId === g.id ? theme.primary : theme.bgSecondary }]}
-            onPress={() => setFilterGroupId(filterGroupId === g.id ? null : g.id)}
-          >
-            <Text style={[styles.filterChipText, { fontSize: s(13), color: filterGroupId === g.id ? '#FFF' : theme.textSecondary }]} numberOfLines={1}>
-              {g.title}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        {filterGroups.length > 0 && (
+          <>
+            <TouchableOpacity
+              style={[styles.filterChip, { backgroundColor: !filterGroupId ? theme.primary : theme.bgSecondary }]}
+              onPress={() => setFilterGroupId(null)}
+            >
+              <Text style={[styles.filterChipText, { fontSize: s(13), color: !filterGroupId ? '#FFF' : theme.textSecondary }]}>내 모임 전체</Text>
+            </TouchableOpacity>
+            {filterGroups.map((g) => (
+              <TouchableOpacity
+                key={g.id}
+                style={[styles.filterChip, { backgroundColor: filterGroupId === g.id ? theme.primary : theme.bgSecondary }]}
+                onPress={() => setFilterGroupId(filterGroupId === g.id ? null : g.id)}
+              >
+                <Text style={[styles.filterChipText, { fontSize: s(13), color: filterGroupId === g.id ? '#FFF' : theme.textSecondary }]} numberOfLines={1}>
+                  {g.title}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </>
+        )}
       </View>
       <ScrollView
         style={styles.scroll}
@@ -327,7 +372,7 @@ export default function ShareListScreen() {
         {filteredPosts.length === 0 ? (
           <View style={styles.empty}>
             <Text style={[styles.emptyText, { fontSize: s(15) }]}>
-              {filterGroupId ? '이 모임 나눔 글이 없어요' : '아직 나눔 글이 없어요'}
+              {filterGroupId ? '이 모임 나눔 글이 없어요' : filterGroups.length === 0 ? '참여 중인 모임이 없어요' : '내 모임 나눔 글이 없어요'}
             </Text>
             <Text style={[styles.emptySub, { fontSize: s(13) }]}>첫 번째로 글을 남겨보세요!</Text>
           </View>
@@ -344,13 +389,22 @@ export default function ShareListScreen() {
               >
                 <View style={styles.cardHeaderRow}>
                   <Text style={[styles.cardNickname, { fontSize: s(13) }]}>{displayNickname(post.authorId, post.authorNickname)}</Text>
-                  {post.groupTitle ? (
-                    <Text style={[styles.cardGroupTag, { fontSize: s(11) }]} numberOfLines={1}>{post.groupTitle}</Text>
-                  ) : null}
+                  {post.groupId && (() => {
+                    const currentName = filterGroups.find((g) => g.id === post.groupId)?.title;
+                    const displayName = currentName || post.groupTitle || '';
+                    return displayName ? (
+                      <Text style={[styles.cardGroupTag, { fontSize: s(11) }]} numberOfLines={1}>{displayName}</Text>
+                    ) : null;
+                  })()}
                 </View>
-                <Text style={[styles.cardContent, { fontSize: s(15) }]} numberOfLines={3}>
-                  {post.content}
-                </Text>
+                {post.imageUrl ? (
+                  <Image source={{ uri: post.imageUrl }} style={[styles.cardImage, { marginBottom: 8 }]} resizeMode="cover" />
+                ) : null}
+                {post.content.trim() ? (
+                  <Text style={[styles.cardContent, { fontSize: s(15) }]} numberOfLines={3}>
+                    {post.content}
+                  </Text>
+                ) : null}
                 <Text style={[styles.cardDate, { fontSize: s(12) }]}>{formatDate(post.createdAt)}</Text>
                 <View style={styles.cardMeta}>
                   <View style={styles.cardMetaItem}>
@@ -366,7 +420,7 @@ export default function ShareListScreen() {
             );
           })
         )}
-        {!filterGroupId && hasMorePosts && posts.length > 0 && (
+        {hasMorePosts && posts.length > 0 && (
           <TouchableOpacity
             style={[styles.loadMoreBtn, { backgroundColor: theme.bgSecondary }]}
             onPress={loadMore}
@@ -426,11 +480,20 @@ export default function ShareListScreen() {
                       <Text style={[styles.detailNickname, { fontSize: s(13) }]}>
                         {displayNickname(detailPost.authorId, detailPost.authorNickname)}
                       </Text>
-                      {detailPost.groupTitle ? (
-                        <Text style={[styles.detailGroupTag, { fontSize: s(12) }]}>{detailPost.groupTitle}</Text>
-                      ) : null}
+                      {detailPost.groupId && (() => {
+                        const currentName = filterGroups.find((g) => g.id === detailPost.groupId)?.title;
+                        const displayName = currentName || detailPost.groupTitle || '';
+                        return displayName ? (
+                          <Text style={[styles.detailGroupTag, { fontSize: s(12) }]}>{displayName}</Text>
+                        ) : null;
+                      })()}
                     </View>
-                    <Text style={[styles.detailContent, { fontSize: s(15) }]}>{detailPost.content}</Text>
+                    {detailPost.imageUrl ? (
+                      <Image source={{ uri: detailPost.imageUrl }} style={styles.detailImage} resizeMode="contain" />
+                    ) : null}
+                    {detailPost.content.trim() ? (
+                      <Text style={[styles.detailContent, { fontSize: s(15) }]}>{detailPost.content}</Text>
+                    ) : null}
                     <Text style={[styles.detailDate, { fontSize: s(12) }]}>
                       {formatDate(detailPost.createdAt)}
                     </Text>
@@ -601,6 +664,7 @@ const styles = StyleSheet.create({
   },
   cardHeaderRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 },
   cardNickname: { fontWeight: '600', color: lightTheme.primary },
+  cardImage: { width: '100%', height: 200, borderRadius: 12 },
   cardGroupTag: {
     marginLeft: 8,
     paddingHorizontal: 8,
@@ -676,6 +740,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     color: lightTheme.textSecondary,
   },
+  detailImage: { width: '100%', maxHeight: 400, borderRadius: 12, marginBottom: 12 },
   detailContent: { color: lightTheme.text, lineHeight: 22, marginBottom: 8 },
   detailDate: { color: lightTheme.textSecondary, marginBottom: 12 },
   detailLikeRow: { flexDirection: 'row', alignItems: 'center' },

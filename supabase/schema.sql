@@ -50,7 +50,8 @@ create table if not exists public.share_posts (
   content text not null,
   created_at timestamptz default now(),
   group_id uuid references public.reading_groups(id) on delete set null,
-  group_title text
+  group_title text,
+  image_url text
 );
 
 -- 나눔 좋아요

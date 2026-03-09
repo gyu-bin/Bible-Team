@@ -20,6 +20,8 @@ export interface Database {
           invite_code: string;
           created_at: string;
           updated_at: string;
+          /** 선택. 이 날부터 모임이 열림. 없으면 created_at 기준 */
+          starts_at?: string | null;
         };
         Insert: {
           id?: string;
@@ -31,6 +33,7 @@ export interface Database {
           invite_code: string;
           created_at?: string;
           updated_at?: string;
+          starts_at?: string | null;
         };
         Update: Partial<Database['public']['Tables']['reading_groups']['Insert']>;
       };

@@ -8,6 +8,8 @@ export interface SharePost {
   groupId?: string | null;
   /** 선택한 모임 이름 (표시용) */
   groupTitle?: string | null;
+  /** 선택. 첨부 사진 (data URL 또는 공개 URL) */
+  imageUrl?: string | null;
 }
 
 export interface ShareLike {

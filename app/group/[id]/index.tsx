@@ -19,7 +19,6 @@ import type { ReadingGroupRow } from '@/types/database';
 import { ensureAnonymousUser, getCurrentUser } from '@/lib/supabase';
 import { getCachedGroups, setCachedGroups, getLocalGroupById, isLocalUserId, getNickname, removeGroupFromMyCache, deleteLocalGroup, getOrCreateLocalUserId } from '@/lib/cache';
 import { getGroupDescription, setGroupDescription } from '@/lib/groupDescriptionStorage';
-import { getCertifications, clearCertificationsForGroup, type CertificationItem } from '@/lib/certificationStorage';
 import { getNicknamesByUserIds, upsertMyNickname } from '@/services/profileService';
 import { useFontScale } from '@/contexts/FontSizeContext';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -42,7 +41,6 @@ export default function GroupDetailScreen() {
   const [memberNicknames, setMemberNicknames] = useState<Record<string, string>>({});
   const [myNickname, setMyNickname] = useState<string>('');
   const [description, setDescription] = useState('');
-  const [certifications, setCertifications] = useState<CertificationItem[]>([]);
   const [leaving, setLeaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -61,12 +59,8 @@ export default function GroupDetailScreen() {
         const groupData = isLocalGroup ? await getLocalGroupById(id) : await getGroupById(id);
         setGroup(groupData ?? null);
         if (groupData) {
-          const [desc, certs] = await Promise.all([
-            getGroupDescription(groupData.id),
-            getCertifications(groupData.id),
-          ]);
+          const desc = await getGroupDescription(groupData.id);
           setDescription(desc);
-          setCertifications(certs);
         }
         const uid = user?.id ?? (isLocalGroup ? await getOrCreateLocalUserId() : null);
         setCurrentUserId(uid);
@@ -119,8 +113,14 @@ export default function GroupDetailScreen() {
     useCallback(() => {
       getNickname().then((n) => setMyNickname(n ?? ''));
       if (!id) return;
+      // 포커스 시 현재 멤버 닉네임만 먼저 재조회해 설정 화면에서 바꾼 닉네임이 바로 반영되도록 함
+      if (members.length > 0) {
+        getNicknamesByUserIds(members.map((m) => m.user_id))
+          .then(setMemberNicknames)
+          .catch(() => {});
+      }
       loadGroup({ silent: true });
-    }, [id, loadGroup])
+    }, [id, loadGroup, members])
   );
 
   const onRefresh = useCallback(async () => {
@@ -169,7 +169,7 @@ export default function GroupDetailScreen() {
     if (!group || !currentUserId || !isLeader) return;
     Alert.alert(
       '모임 삭제',
-      '모임을 삭제하면 복구할 수 없어요. 인증 피드·나눔 연결도 함께 사라져요. 정말 삭제할까요?',
+      '모임을 삭제하면 복구할 수 없어요. 나눔 연결도 함께 사라져요. 정말 삭제할까요?',
       [
         { text: '취소', style: 'cancel' },
         {
@@ -179,7 +179,6 @@ export default function GroupDetailScreen() {
             setDeleting(true);
             try {
               await setGroupDescription(group.id, '');
-              await clearCertificationsForGroup(group.id);
               if (isLocalGroup) {
                 await deleteLocalGroup(group.id);
                 invalidate();
@@ -311,27 +310,6 @@ export default function GroupDetailScreen() {
           })}
         </View>
       </View>
-
-      {alreadyMember ? (
-        <TouchableOpacity
-          style={[styles.certSection, { borderTopColor: theme.border }]}
-          onPress={() => router.push(`/group/${id}/feed`)}
-          activeOpacity={0.7}
-        >
-          <View style={styles.certSectionLeft}>
-            <Text style={[styles.memberSectionTitle, { fontSize: s(13), color: theme.textSecondary }]}>인증 피드</Text>
-            <Text style={[styles.certSectionHint, { fontSize: s(13), color: theme.textSecondary }]}>
-              사진을 올리고 모아서 볼 수 있어요
-            </Text>
-          </View>
-          <View style={styles.certSectionRight}>
-            {certifications.length > 0 ? (
-              <Text style={[styles.certCount, { fontSize: s(14), color: theme.primary }]}>{certifications.length}건</Text>
-            ) : null}
-            <Ionicons name="chevron-forward" size={s(20)} color={theme.textSecondary} />
-          </View>
-        </TouchableOpacity>
-      ) : null}
 
       {alreadyMember ? (
         <TouchableOpacity

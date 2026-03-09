@@ -2,7 +2,36 @@ import { supabase } from '@/lib/supabase';
 import type { ReadingLogRow } from '@/types/database';
 import { getGroupMembers } from '@/services/groupService';
 
-/** 모임 멤버별 완료한 일수 (logged_at 날짜 기준 distinct). 로컬/에러 시 {} */
+/** 사용자 로컬 기준 오늘 00:00 ~ 23:59:59.999를 UTC ISO 구간으로 반환 (Supabase timestamptz 쿼리용) */
+function getTodayLocalRangeISO(): { start: string; end: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const d = now.getDate();
+  const startOfDay = new Date(y, m, d, 0, 0, 0, 0);
+  const endOfDay = new Date(y, m, d, 23, 59, 59, 999);
+  return { start: startOfDay.toISOString(), end: endOfDay.toISOString() };
+}
+
+/** 사용자 로컬 기준 오늘 날짜 문자열 YYYY-MM-DD */
+function getTodayLocalDateString(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** ISO 문자열을 로컬 날짜 YYYY-MM-DD로 */
+function toLocalDateString(iso: string): string {
+  const d = new Date(iso);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** 모임 멤버별 완료한 일수 (logged_at을 로컬 날짜 기준 distinct). 로컬/에러 시 {} */
 export async function getMemberCompletedDays(
   groupId: string
 ): Promise<Record<string, number>> {
@@ -15,7 +44,7 @@ export async function getMemberCompletedDays(
     if (error) return {};
     const byUser: Record<string, Set<string>> = {};
     for (const row of (data ?? []) as { user_id: string; logged_at: string }[]) {
-      const date = row.logged_at.slice(0, 10);
+      const date = toLocalDateString(row.logged_at);
       if (!byUser[row.user_id]) byUser[row.user_id] = new Set();
       byUser[row.user_id].add(date);
     }
@@ -45,16 +74,16 @@ export async function getGroupMemberProgress(
   return result;
 }
 
-/** 오늘 이 모임에서 기록한 읽기 로그가 있는지 */
+/** 오늘 이 모임에서 기록한 읽기 로그가 있는지 (로컬 날짜 기준 00:00~23:59) */
 export async function hasLoggedToday(groupId: string, userId: string): Promise<boolean> {
-  const today = new Date().toISOString().slice(0, 10);
+  const { start, end } = getTodayLocalRangeISO();
   const { data, error } = await supabase
     .from('reading_logs')
     .select('id')
     .eq('group_id', groupId)
     .eq('user_id', userId)
-    .gte('logged_at', `${today}T00:00:00`)
-    .lt('logged_at', `${today}T23:59:59.999`)
+    .gte('logged_at', start)
+    .lte('logged_at', end)
     .limit(1)
     .maybeSingle();
 
@@ -80,7 +109,7 @@ export async function logTodayComplete(
   return data as ReadingLogRow;
 }
 
-/** 내가 읽기 완료한 날짜들 (YYYY-MM-DD, 최신순). 게임화/통계용 */
+/** 내가 읽기 완료한 날짜들 (로컬 날짜 YYYY-MM-DD, 최신순). 게임화/통계용 */
 export async function getMyLoggedDates(userId: string): Promise<string[]> {
   try {
     const { data, error } = await supabase
@@ -91,7 +120,7 @@ export async function getMyLoggedDates(userId: string): Promise<string[]> {
     if (error) return [];
     const set = new Set<string>();
     for (const row of (data ?? []) as { logged_at: string }[]) {
-      set.add(row.logged_at.slice(0, 10));
+      set.add(toLocalDateString(row.logged_at));
     }
     return Array.from(set).sort((a, b) => (b > a ? 1 : -1));
   } catch {
@@ -99,16 +128,17 @@ export async function getMyLoggedDates(userId: string): Promise<string[]> {
   }
 }
 
-/** 연속 읽기 일수 (오늘 포함, 오늘부터 과거로 이어지는 일수) */
+/** 연속 읽기 일수 (로컬 오늘 포함, 오늘부터 과거로 이어지는 일수) */
 export function getConsecutiveDays(dates: string[]): number {
   if (dates.length === 0) return 0;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getTodayLocalDateString();
   if (!dates.includes(today)) return 0;
   let count = 0;
-  let d = new Date(today);
   const sorted = [...dates].sort((a, b) => (b > a ? 1 : -1));
+  const [y, m, day] = today.split('-').map(Number);
+  let d = new Date(y, m - 1, day);
   for (const dateStr of sorted) {
-    const expected = d.toISOString().slice(0, 10);
+    const expected = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     if (dateStr !== expected) break;
     count++;
     d.setDate(d.getDate() - 1);
@@ -131,16 +161,16 @@ export function getThisWeekCompletedCount(dates: string[]): number {
   }).length;
 }
 
-/** 오늘 이 모임에서 기록한 읽기 로그 전부 삭제 (완료 취소용) */
+/** 오늘 이 모임에서 기록한 읽기 로그 전부 삭제 (로컬 날짜 기준, 완료 취소용) */
 export async function deleteTodayLogs(groupId: string, userId: string): Promise<void> {
-  const today = new Date().toISOString().slice(0, 10);
+  const { start, end } = getTodayLocalRangeISO();
   const { error } = await supabase
     .from('reading_logs')
     .delete()
     .eq('group_id', groupId)
     .eq('user_id', userId)
-    .gte('logged_at', `${today}T00:00:00`)
-    .lt('logged_at', `${today}T23:59:59.999`);
+    .gte('logged_at', start)
+    .lte('logged_at', end);
   if (error) throw error;
 }
 

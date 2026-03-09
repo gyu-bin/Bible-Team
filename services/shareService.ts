@@ -9,6 +9,7 @@ type SharePostRow = {
   created_at: string;
   group_id: string | null;
   group_title: string | null;
+  image_url?: string | null;
 };
 
 type ShareCommentRow = {
@@ -29,6 +30,7 @@ function toSharePost(r: SharePostRow): SharePost {
     createdAt: r.created_at,
     groupId: r.group_id ?? null,
     groupTitle: r.group_title ?? null,
+    imageUrl: r.image_url ?? null,
   };
 }
 
@@ -61,37 +63,41 @@ export async function addSharePostToServer(
   authorId: string,
   authorNickname: string,
   content: string,
-  options?: { groupId?: string | null; groupTitle?: string | null }
+  options?: { groupId?: string | null; groupTitle?: string | null; imageUrl?: string | null }
 ): Promise<SharePost> {
+  const row: Record<string, unknown> = {
+    author_id: authorId,
+    author_nickname: (authorNickname ?? '').trim() || '익명',
+    content: content.trim(),
+    group_id: options?.groupId ?? null,
+    group_title: options?.groupTitle ?? null,
+  };
+  if (options?.imageUrl != null && options.imageUrl !== '') row.image_url = options.imageUrl;
   const { data, error } = await supabase
     .from('share_posts')
-    .insert({
-      author_id: authorId,
-      author_nickname: (authorNickname ?? '').trim() || '익명',
-      content: content.trim(),
-      group_id: options?.groupId ?? null,
-      group_title: options?.groupTitle ?? null,
-    })
-    .select()
+    .insert(row)
+    .select('id, author_id, author_nickname, content, created_at, group_id, group_title')
     .single();
-
   if (error) throw error;
-  return toSharePost(data as SharePostRow);
+  const thin = data as Omit<SharePostRow, 'image_url'>;
+  return toSharePost({ ...thin, image_url: options?.imageUrl ?? null } as SharePostRow);
 }
 
 export async function updateSharePostFromServer(
   postId: string,
   authorId: string,
   content: string,
-  options?: { groupId?: string | null; groupTitle?: string | null }
+  options?: { groupId?: string | null; groupTitle?: string | null; imageUrl?: string | null }
 ): Promise<SharePost> {
+  const update: Record<string, unknown> = {
+    content: content.trim(),
+    group_id: options?.groupId ?? null,
+    group_title: options?.groupTitle ?? null,
+  };
+  if (options && 'imageUrl' in options) update.image_url = options.imageUrl ?? null;
   const { data, error } = await supabase
     .from('share_posts')
-    .update({
-      content: content.trim(),
-      group_id: options?.groupId ?? null,
-      group_title: options?.groupTitle ?? null,
-    })
+    .update(update)
     .eq('id', postId)
     .eq('author_id', authorId)
     .select()
