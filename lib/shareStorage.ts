@@ -129,10 +129,17 @@ export async function getShareCounts(): Promise<{
   return { likeCountByPost, commentCountByPost };
 }
 
-/** 나눔 글 작성 (내용 + 선택한 모임 + 선택 사진). 세션 있으면 서버, 없으면 기기 로컬 */
+/** 나눔 글 작성 (내용 + 선택한 모임 + 선택 사진 + 일차/구절). 세션 있으면 서버, 없으면 기기 로컬 */
 export async function addSharePost(
   content: string,
-  options?: { groupId?: string | null; groupTitle?: string | null; imageUrl?: string | null; postType?: 'share' | 'prayer' }
+  options?: {
+    groupId?: string | null;
+    groupTitle?: string | null;
+    imageUrl?: string | null;
+    postType?: 'share' | 'prayer';
+    dayIndex?: number | null;
+    passageLabel?: string | null;
+  }
 ): Promise<SharePost> {
   const authorNickname = (await getNickname()) || '익명';
   const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
@@ -155,6 +162,8 @@ export async function addSharePost(
     groupTitle: options?.groupTitle ?? null,
     imageUrl: options?.imageUrl ?? null,
     postType: options?.postType ?? 'share',
+    dayIndex: options?.dayIndex ?? null,
+    passageLabel: options?.passageLabel ?? null,
   };
   const posts = await getStoredPosts();
   await setStoredPosts([post, ...posts]);
@@ -243,7 +252,13 @@ export async function addShareComment(postId: string, content: string): Promise<
 export async function updateSharePost(
   postId: string,
   content: string,
-  options?: { groupId?: string | null; groupTitle?: string | null }
+  options?: {
+    groupId?: string | null;
+    groupTitle?: string | null;
+    imageUrl?: string | null;
+    dayIndex?: number | null;
+    passageLabel?: string | null;
+  }
 ): Promise<SharePost> {
   const authorNickname = (await getNickname()) || '익명';
   const user = (await ensureAnonymousUser().catch(() => null)) ?? (await getCurrentUser().catch(() => null));
@@ -263,6 +278,9 @@ export async function updateSharePost(
     content: content.trim(),
     groupId: options?.groupId ?? posts[idx].groupId ?? null,
     groupTitle: options?.groupTitle ?? posts[idx].groupTitle ?? null,
+    ...(options && 'imageUrl' in options && { imageUrl: options.imageUrl ?? null }),
+    ...(options && 'dayIndex' in options && { dayIndex: options.dayIndex ?? null }),
+    ...(options && 'passageLabel' in options && { passageLabel: options.passageLabel ?? null }),
   };
   posts[idx] = updated;
   await setStoredPosts(posts);

@@ -46,3 +46,12 @@ create policy "reminder_sent insert" on public.reminder_sent
 
 create index if not exists idx_reminder_sent_to_group_date
   on public.reminder_sent (to_user_id, group_id, sent_at);
+
+-- 6) share_posts: 함께 읽는 말씀(일차·구절) 연결
+alter table public.share_posts
+  add column if not exists day_index integer;
+comment on column public.share_posts.day_index is '선택. 글 작성 시점 모임 기준 N일차(0-based)';
+
+alter table public.share_posts
+  add column if not exists passage_label text;
+comment on column public.share_posts.passage_label is '선택. 해당 일차 오늘 읽기 구절 표시용 (예: 로마서 3장)';

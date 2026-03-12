@@ -22,6 +22,7 @@ import { lightTheme } from '@/constants/theme';
 import { useFontScale } from '@/contexts/FontSizeContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useDataRefresh } from '@/contexts/DataRefreshContext';
+import { getPassageLabelForGroup } from '@/constants/bibleBooks';
 import { addSharePost } from '@/lib/shareStorage';
 import { getCachedGroups, getLocalGroups } from '@/lib/cache';
 import { getMyGroups } from '@/services/groupService';
@@ -139,11 +140,15 @@ export default function ShareCreateScreen() {
         });
         imageUrl = `data:${contentType};base64,${base64}`;
       }
+      const selectedGroup = groupId ? groups.find((g) => g.id === groupId) : null;
+      const passage = selectedGroup ? getPassageLabelForGroup(selectedGroup) : null;
       const newPost = await addSharePost(trimmed || ' ', {
         groupId: groupId ?? undefined,
         groupTitle: groupTitle ?? undefined,
         imageUrl: imageUrl ?? undefined,
         postType,
+        dayIndex: passage?.dayIndex ?? undefined,
+        passageLabel: passage?.passageLabel ?? undefined,
       });
       setPendingNewPost(newPost);
       invalidate();

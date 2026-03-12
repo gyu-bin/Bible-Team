@@ -143,6 +143,11 @@ export default function GroupFeedScreen() {
               <View style={styles.cardHeaderRow}>
                 <Text style={[styles.cardNickname, { fontSize: s(13), color: theme.primary }]}>{displayName(post)}</Text>
               </View>
+              {post.passageLabel ? (
+                <View style={[styles.cardPassageWrap, { backgroundColor: theme.bgSecondary, marginBottom: 6 }]}>
+                  <Text style={[styles.cardPassageText, { fontSize: s(12), color: theme.textSecondary }]} numberOfLines={1}>📖 {post.passageLabel}</Text>
+                </View>
+              ) : null}
               {post.imageUrl ? (
                 <Image source={{ uri: post.imageUrl }} style={[styles.cardImage, { marginBottom: 8 }]} resizeMode="cover" />
               ) : null}
@@ -195,6 +200,8 @@ const styles = StyleSheet.create({
   },
   cardHeaderRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 },
   cardNickname: { fontWeight: '600' },
+  cardPassageWrap: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  cardPassageText: {},
   cardImage: { width: '100%', aspectRatio: 1, borderRadius: 12 },
   cardContent: { lineHeight: 22, marginBottom: 8 },
   cardDateBottom: { marginBottom: 8 },

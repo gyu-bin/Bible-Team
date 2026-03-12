@@ -7,7 +7,7 @@ import { logChapters, deleteTodayLogs, getMultiGroupMemberProgress, getMyLoggedD
 import { getNicknamesByUserIds } from '@/services/profileService';
 import { sendReminderPush } from '@/services/reminderPushService';
 import { getCachedGroups, getCachedLoggedToday, setCachedGroups, setCachedLoggedToday, setCachedLoggedTodayGroup, getLocalGroups, isLocalUserId, getOrCreateLocalUserId, getNickname } from '@/lib/cache';
-import { getTodayChapters } from '@/constants/bibleBooks';
+import { getTodayChapters, getPassageLabelForGroup } from '@/constants/bibleBooks';
 import { cancelTodayReminderOnComplete } from '@/lib/reminderNotifications';
 import { addSharePost } from '@/lib/shareStorage';
 import { TodayReadingCard, type MemberProgressItem } from '@/components/TodayReadingCard';
@@ -540,9 +540,12 @@ export default function HomeScreen() {
                     if (!meditationInput.trim() || meditationSubmitting) return;
                     setMeditationSubmitting(true);
                     try {
+                      const passage = getPassageLabelForGroup(meditationModal.group);
                       await addSharePost(meditationInput.trim(), {
                         groupId: meditationModal.group.id,
                         groupTitle: meditationModal.group.title,
+                        dayIndex: passage?.dayIndex,
+                        passageLabel: passage?.passageLabel,
                       });
                     } catch (e) {
                       console.error(e);

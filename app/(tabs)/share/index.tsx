@@ -342,15 +342,15 @@ export default function ShareListScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]} collapsable={false}>
       <View style={styles.header}>
-        <Text style={[styles.title, { fontSize: s(20) }]}>나눔 💬</Text>
-        <Text style={[styles.subtitle, { fontSize: s(13) }]}>읽은 말씀을 나눠보세요</Text>
+        <Text style={[styles.title, { fontSize: s(20), color: theme.text }]}>함께 읽는 말씀 나눔 💬</Text>
+        <Text style={[styles.subtitle, { fontSize: s(13), color: theme.textSecondary }]}>같이 읽는 구절을 나눠보세요</Text>
       </View>
       <View style={styles.tabBar}>
         <TouchableOpacity
           style={[styles.tabItem, activeTab === 'share' && styles.tabItemActive]}
           onPress={() => setActiveTab('share')}
         >
-          <Text style={[styles.tabText, { fontSize: s(15) }, activeTab === 'share' && styles.tabTextActive]}>📖 나눔</Text>
+          <Text style={[styles.tabText, { fontSize: s(15) }, activeTab === 'share' && styles.tabTextActive]}>📖 말씀 나눔</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.tabItem, activeTab === 'prayer' && styles.tabItemActive]}
@@ -412,15 +412,20 @@ export default function ShareListScreen() {
                 activeOpacity={0.8}
               >
                 <View style={styles.cardHeaderRow}>
-                  <Text style={[styles.cardNickname, { fontSize: s(13) }]}>{displayNickname(post.authorId, post.authorNickname)}</Text>
+                  <Text style={[styles.cardNickname, { fontSize: s(13), color: theme.primary }]}>{displayNickname(post.authorId, post.authorNickname)}</Text>
                   {post.groupId && (() => {
                     const currentName = filterGroups.find((g) => g.id === post.groupId)?.title;
                     const displayName = currentName || post.groupTitle || '';
                     return displayName ? (
-                      <Text style={[styles.cardGroupTag, { fontSize: s(11) }]} numberOfLines={1}>{displayName}</Text>
+                      <Text style={[styles.cardGroupTag, { fontSize: s(11), color: theme.textSecondary }]} numberOfLines={1}>{displayName}</Text>
                     ) : null;
                   })()}
                 </View>
+                {post.passageLabel ? (
+                  <View style={[styles.cardPassageWrap, { backgroundColor: theme.bgSecondary, marginBottom: 6 }]}>
+                    <Text style={[styles.cardPassageText, { fontSize: s(12), color: theme.textSecondary }]} numberOfLines={1}>📖 {post.passageLabel}</Text>
+                  </View>
+                ) : null}
                 {post.imageUrl ? (
                   <Image source={{ uri: post.imageUrl }} style={[styles.cardImage, { marginBottom: 8 }]} resizeMode="cover" />
                 ) : null}
@@ -515,6 +520,11 @@ export default function ShareListScreen() {
                         ) : null;
                       })()}
                     </View>
+                    {detailPost.passageLabel ? (
+                      <View style={[styles.detailPassageWrap, { backgroundColor: theme.bgSecondary, marginBottom: 8 }]}>
+                        <Text style={[styles.detailPassageText, { fontSize: s(12), color: theme.textSecondary }]}>📖 {detailPost.passageLabel}</Text>
+                      </View>
+                    ) : null}
                     {detailPost.imageUrl ? (
                       <Image
                         source={{ uri: detailPost.imageUrl }}
@@ -724,6 +734,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     maxWidth: 160,
   },
+  cardPassageWrap: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  cardPassageText: {},
   cardContent: { color: lightTheme.text, lineHeight: 22, marginBottom: 8 },
   cardDate: { color: lightTheme.textSecondary, marginBottom: 8 },
   cardMeta: { flexDirection: 'row' },
@@ -791,6 +803,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     maxWidth: 140,
   },
+  detailPassageWrap: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  detailPassageText: {},
   detailImage: { width: '100%', aspectRatio: 1, borderRadius: 12, marginBottom: 10 },
   detailContent: { lineHeight: 22, marginBottom: 8 },
   detailMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },

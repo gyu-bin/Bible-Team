@@ -12,6 +12,10 @@ export interface SharePost {
   imageUrl?: string | null;
   /** 'share' = 일반 나눔, 'prayer' = 기도 제목. 기본값 'share' */
   postType?: 'share' | 'prayer';
+  /** 선택. 글 작성 시점 모임 기준 N일차(0-based). 함께 읽는 말씀 연결용 */
+  dayIndex?: number | null;
+  /** 선택. 해당 일차 오늘 읽기 구절 표시용 (예: 로마서 3장) */
+  passageLabel?: string | null;
 }
 
 export interface ShareLike {

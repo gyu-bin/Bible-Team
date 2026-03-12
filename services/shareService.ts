@@ -11,6 +11,8 @@ type SharePostRow = {
   group_title: string | null;
   image_url?: string | null;
   post_type?: string;
+  day_index?: number | null;
+  passage_label?: string | null;
 };
 
 type ShareCommentRow = {
@@ -33,6 +35,8 @@ function toSharePost(r: SharePostRow): SharePost {
     groupTitle: r.group_title ?? null,
     imageUrl: r.image_url ?? null,
     postType: (r.post_type === 'prayer' ? 'prayer' : 'share') as 'share' | 'prayer',
+    dayIndex: r.day_index ?? null,
+    passageLabel: r.passage_label ?? null,
   };
 }
 
@@ -65,7 +69,14 @@ export async function addSharePostToServer(
   authorId: string,
   authorNickname: string,
   content: string,
-  options?: { groupId?: string | null; groupTitle?: string | null; imageUrl?: string | null; postType?: 'share' | 'prayer' }
+  options?: {
+    groupId?: string | null;
+    groupTitle?: string | null;
+    imageUrl?: string | null;
+    postType?: 'share' | 'prayer';
+    dayIndex?: number | null;
+    passageLabel?: string | null;
+  }
 ): Promise<SharePost> {
   const row: Record<string, unknown> = {
     author_id: authorId,
@@ -76,10 +87,12 @@ export async function addSharePostToServer(
     post_type: options?.postType ?? 'share',
   };
   if (options?.imageUrl != null && options.imageUrl !== '') row.image_url = options.imageUrl;
+  if (options?.dayIndex != null && options.dayIndex >= 0) row.day_index = options.dayIndex;
+  if (options?.passageLabel != null && options.passageLabel !== '') row.passage_label = options.passageLabel;
   const { data, error } = await supabase
     .from('share_posts')
     .insert(row)
-    .select('id, author_id, author_nickname, content, created_at, group_id, group_title, post_type')
+    .select('id, author_id, author_nickname, content, created_at, group_id, group_title, post_type, day_index, passage_label')
     .single();
   if (error) throw error;
   const thin = data as Omit<SharePostRow, 'image_url'>;
@@ -90,7 +103,13 @@ export async function updateSharePostFromServer(
   postId: string,
   authorId: string,
   content: string,
-  options?: { groupId?: string | null; groupTitle?: string | null; imageUrl?: string | null }
+  options?: {
+    groupId?: string | null;
+    groupTitle?: string | null;
+    imageUrl?: string | null;
+    dayIndex?: number | null;
+    passageLabel?: string | null;
+  }
 ): Promise<SharePost> {
   const update: Record<string, unknown> = {
     content: content.trim(),
@@ -98,6 +117,8 @@ export async function updateSharePostFromServer(
     group_title: options?.groupTitle ?? null,
   };
   if (options && 'imageUrl' in options) update.image_url = options.imageUrl ?? null;
+  if (options && 'dayIndex' in options) update.day_index = options.dayIndex ?? null;
+  if (options && 'passageLabel' in options) update.passage_label = options.passageLabel ?? null;
   const { data, error } = await supabase
     .from('share_posts')
     .update(update)

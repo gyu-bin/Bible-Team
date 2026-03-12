@@ -91,6 +91,40 @@ export function getBooksFrom(startBookName: string, count: number): { book: stri
   return result;
 }
 
+/** 모임 기준 1일차 날짜 (starts_at 있으면 그날, 없으면 created_at) */
+export function getGroupStartDate(group: { starts_at?: string | null; created_at: string }): string {
+  return group.starts_at ?? group.created_at;
+}
+
+/** 오늘이 모임 기준 몇 일차인지 (0-based). 미래면 -1 */
+export function getDayIndex(startDate: string): number {
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (start.getTime() > today.getTime()) return -1;
+  const diff = Math.floor((today.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+  return Math.max(0, diff);
+}
+
+/** 모임의 "오늘 읽는 구절" 라벨 (나눔 글 저장용). 일차가 유효할 때만 반환 */
+export function getPassageLabelForGroup(group: {
+  start_book: string;
+  pages_per_day: number;
+  starts_at?: string | null;
+  created_at: string;
+}): { dayIndex: number; passageLabel: string } | null {
+  const startDate = getGroupStartDate(group);
+  const dayIndex = getDayIndex(startDate);
+  if (dayIndex < 0) return null;
+  const chapters = getTodayChapters(group.start_book, group.pages_per_day, dayIndex);
+  if (chapters.length === 0) return { dayIndex, passageLabel: '' };
+  const passageLabel = chapters
+    .map((r) => (r.fromChapter === r.toChapter ? `${r.book} ${r.fromChapter}장` : `${r.book} ${r.fromChapter}~${r.toChapter}장`))
+    .join(', ');
+  return { dayIndex, passageLabel };
+}
+
 /** N일차(0-based)일 때 오늘 읽을 구간. 1일차 = dayIndex 0 → start_book 1~pages_per_day장 */
 export function getTodayChapters(
   startBookName: string,
